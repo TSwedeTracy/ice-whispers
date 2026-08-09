@@ -1,0 +1,53 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: radial-gradient(ellipse at 50% 0%, rgba(30, 111, 148, 0.18), transparent 60%),
+    radial-gradient(ellipse at 50% 100%, rgba(109, 75, 176, 0.12), transparent 55%),
+    #05070c;
+}
+
+.card-perspective {
+  perspective: 1400px;
+}
+
+.card-inner {
+  transform-style: preserve-3d;
+  transition: transform 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.card-inner.flipped {
+  transform: rotateY(180deg);
+}
+
+.card-face {
+  backface-visibility: hidden;
+}
+
+.card-face-back {
+  transform: rotateY(180deg);
+}
+
+.ice-particle {
+  position: absolute;
+  bottom: -10%;
+  width: 2px;
+  height: 2px;
+  border-radius: 9999px;
+  background: rgba(159, 215, 242, 0.8);
+  box-shadow: 0 0 6px 1px rgba(159, 215, 242, 0.6);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card-inner {
+    transition: none;
+  }
+  .ice-particle {
+    display: none;
+  }
+}
