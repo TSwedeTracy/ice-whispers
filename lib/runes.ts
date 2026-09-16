@@ -750,12 +750,19 @@ export function getRuneById(id: number): Rune {
   return rune;
 }
 
-/** Draws a random card. Wyrd has a deliberately lower draw weight (1/25 like any other single card by default; adjust WYRD_WEIGHT to change its rarity). */
-const WYRD_WEIGHT = 1; // out of (24 + WYRD_WEIGHT) total weight
-export function drawRandomCard(): { rune: Rune; reversed: boolean } {
-  const totalWeight = RUNES.length + WYRD_WEIGHT;
-  const roll = Math.random() * totalWeight;
-  const rune = roll < RUNES.length ? RUNES[Math.floor(roll)] : WYRD;
-  const reversed = rune.canReverse ? Math.random() < 0.5 : false;
-  return { rune, reversed };
+/**
+ * Draws `count` DISTINCT cards, like pulling from a physical deck rather
+ * than rolling dice per slot — a multi-card spread should never show the
+ * same rune twice.
+ */
+export function drawSpread(count: number): { rune: Rune; reversed: boolean }[] {
+  const deck = [...ALL_CARDS];
+  for (let i = deck.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [deck[i], deck[j]] = [deck[j], deck[i]];
+  }
+  return deck.slice(0, count).map((rune) => ({
+    rune,
+    reversed: rune.canReverse ? Math.random() < 0.5 : false,
+  }));
 }

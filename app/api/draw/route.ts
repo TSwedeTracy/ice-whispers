@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { drawRandomCard } from "@/lib/runes";
+import { drawSpread } from "@/lib/runes";
 import { getOrCreateVisitorId, checkAndConsumeEntitlement } from "@/lib/session";
 
 export const runtime = "edge";
@@ -39,10 +39,11 @@ export async function POST(req: NextRequest) {
         ]
       : [null];
 
-  const cards = Array.from({ length: cardCount }).map((_, i) => {
-    const { rune, reversed } = drawRandomCard();
-    return { runeId: rune.id, reversed, position: positions[i] ?? undefined };
-  });
+  const cards = drawSpread(cardCount).map(({ rune, reversed }, i) => ({
+    runeId: rune.id,
+    reversed,
+    position: positions[i] ?? undefined,
+  }));
 
   return NextResponse.json({ cards, entitlementReason: entitlement.reason });
 }
