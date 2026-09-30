@@ -6,9 +6,9 @@ export const runtime = "nodejs"; // Stripe SDK needs the Node runtime, not edge
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
-  const product: "topup" | "subscription" = body.product;
+  const product: "dayPass" | "subscription" = body.product;
 
-  if (product !== "topup" && product !== "subscription") {
+  if (product !== "dayPass" && product !== "subscription") {
     return NextResponse.json({ error: "invalid_product" }, { status: 400 });
   }
 
@@ -33,9 +33,9 @@ export async function POST(req: NextRequest) {
           }
         : {
             price_data: {
-              currency: PRICING.topUp.currency,
-              product_data: { name: PRICING.topUp.label, description: PRICING.topUp.description },
-              unit_amount: PRICING.topUp.amountCents,
+              currency: PRICING.dayPass.currency,
+              product_data: { name: PRICING.dayPass.label, description: PRICING.dayPass.description },
+              unit_amount: PRICING.dayPass.amountCents,
             },
             quantity: 1,
           },
@@ -46,3 +46,4 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ url: session.url });
 }
+

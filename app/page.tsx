@@ -22,6 +22,7 @@ export default function Home() {
   const [showSummary, setShowSummary] = useState(false);
   const [reading, setReading] = useState<Reading | null>(null);
   const [isPlus, setIsPlus] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/entitlement")
@@ -33,6 +34,7 @@ export default function Home() {
   async function handleAsk(q: string, s: SpreadType) {
     setQuestion(q);
     setSpread(s);
+    setErrorMessage(null);
     setStage("drawing");
 
     const res = await fetch("/api/draw", {
@@ -43,6 +45,13 @@ export default function Home() {
 
     if (res.status === 402) {
       setStage("locked");
+      return;
+    }
+
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      setErrorMessage(body.message ?? "Something went wrong — try again in a moment.");
+      setStage("ask");
       return;
     }
 
@@ -99,7 +108,14 @@ export default function Home() {
       <IceField />
 
       <div className="relative z-10 w-full flex flex-col items-center gap-14">
-        {stage === "ask" && <QuestionForm onSubmit={handleAsk} isPlus={isPlus} />}
+        {stage === "ask" && (
+          <>
+            <QuestionForm onSubmit={handleAsk} isPlus={isPlus} onLockedSpreadSelect={() => setStage("locked")} />
+            {errorMessage && (
+              <p className="text-red-400/90 text-sm -mt-8 text-center max-w-sm">{errorMessage}</p>
+            )}
+          </>
+        )}
 
         {stage === "locked" && (
           <>
@@ -223,3 +239,4 @@ export default function Home() {
     </main>
   );
 }
+

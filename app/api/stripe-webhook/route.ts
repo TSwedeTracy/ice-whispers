@@ -32,16 +32,19 @@ export async function POST(req: NextRequest) {
 
       if (!visitorId) break;
 
-      if (product === "topup") {
-        const today = new Date().toISOString().slice(0, 10);
-        await db.from("usage_daily").upsert(
-          {
-            visitor_id: visitorId,
-            usage_date: today,
-            extra_readings_purchased: 5, // "5 more digital rune readings today"
-          },
-          { onConflict: "visitor_id,usage_date" }
-        );
+      if (product === "dayPass") {
+        // Unlimited readings for the next 24h — stored as an entitlement,
+        // same mechanism as a subscription, just with a short expiry and a
+        // distinct status so the UI/DB can tell them apart. The fair-use
+        // daily cap (lib/session.ts) still applies even during this window.
+        const expires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+        await db.from("entitlements").upsert({
+          visitor_id: visitorId,
+          stripe_customer_id: session.customer,
+          status: "day_pass",
+          current_period_end: expires,
+          updated_at: new Date().toISOString(),
+        });
       } else if (product === "subscription") {
         await db.from("entitlements").upsert({
           visitor_id: visitorId,
@@ -75,3 +78,4 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ received: true });
 }
+

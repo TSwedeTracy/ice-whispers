@@ -30,8 +30,8 @@ export async function POST(req: NextRequest) {
       question,
       cards,
       answer: reading.answer,
-      reading: reading.reading,
-      guidance: reading.guidance,
+      reading: reading.cardMeaning,
+      guidance: reading.interpretation,
       whisper: reading.whisper,
     })
     .select("id, created_at")
@@ -48,3 +48,4 @@ export async function POST(req: NextRequest) {
     createdAt: data?.created_at ?? new Date().toISOString(),
   });
 }
+

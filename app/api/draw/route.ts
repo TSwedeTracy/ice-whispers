@@ -11,14 +11,37 @@ export async function POST(req: NextRequest) {
   const visitorId = await getOrCreateVisitorId();
   const entitlement = await checkAndConsumeEntitlement(visitorId);
 
+  if (!entitlement.allowed && entitlement.reason === "service_unavailable") {
+    // The database itself is unreachable/misconfigured — fail closed
+    // rather than silently granting unlimited free readings. Distinct
+    // from limit_reached so the frontend doesn't show "you've used
+    // today's reading" when that isn't actually true.
+    return NextResponse.json(
+      { error: "service_unavailable", message: "The runes are unreachable right now — try again shortly." },
+      { status: 503 }
+    );
+  }
+
+  if (!entitlement.allowed && entitlement.reason === "fair_use_cap") {
+    // They already have an unlimited grant (day pass or subscription) but
+    // hit the fair-use ceiling for today — don't upsell, they already paid.
+    return NextResponse.json(
+      {
+        error: "fair_use_cap",
+        message: "You've reached today's fair-use limit — more readings unlock again tomorrow.",
+      },
+      { status: 429 }
+    );
+  }
+
   if (!entitlement.allowed) {
     return NextResponse.json(
       {
         error: "limit_reached",
         message: "You've used today's free reading.",
         upsell: {
-          topUp: { label: "Continue Today — $0.99", priceId: "topup" },
-          subscription: { label: "Go Unlimited — $4.99/month", priceId: "subscription" },
+          dayPass: { label: "Continue Today — $1", priceId: "dayPass" },
+          subscription: { label: "Go Unlimited — $4.90/month", priceId: "subscription" },
         },
       },
       { status: 402 }
@@ -47,3 +70,4 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ cards, entitlementReason: entitlement.reason });
 }
+

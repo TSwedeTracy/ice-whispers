@@ -2,17 +2,37 @@
 //
 // This file is intentionally the ONLY place that talks to an AI provider.
 // Swap providers by editing `generateWithProvider` — nothing else in the
-// app needs to change. Until you add an API key, `generateWithProvider`
-// falls back to `generateMock`, a rule-based generator built from the
-// same structured rune data, so the full product works end-to-end today.
+// app needs to change. Without an API key, `generateWithProvider` falls
+// back to `generateMock`, a rule-based generator built from the same
+// structured rune data, so the product still works end-to-end.
 //
-// To connect a real model later:
-//   1. Add ANTHROPIC_API_KEY (or OPENAI_API_KEY) to your environment.
-//   2. Implement the fetch call inside `generateWithProvider` (a
-//      commented example for Claude is included below).
-// The prompt sent to the model deliberately contains ONLY what's needed
-// for one reading (see AI COST CONTROL in the original spec) — never the
-// full rune database and never prior conversation history.
+// STRUCTURE (per product direction, Sept 2026): every reading has exactly
+// four parts —
+//   1. answer          the direct headline (YES / LIKELY YES / ... )
+//   2. cardMeaning      what the rune generally means — NOT tied to the
+//                       question yet (single-card spreads only; for
+//                       multi-card spreads each drawn card's general
+//                       meaning is already shown per-position, so this is
+//                       omitted at the top level to avoid repeating it)
+//   3. interpretation   the actual divination: the rune(s) read SPECIFICALLY
+//                       against the person's exact question, in plain
+//                       English, explaining why it leads to that answer
+//   4. whisper          a deepening of the interpretation, or one concrete
+//                       piece of advice for the situation — not required to
+//                       be phrased as a question anymore
+//
+// This is the part that must NOT read like a dictionary entry — see
+// "READING QUALITY" in the product spec. A rule-based template can only
+// approximate that; a real model reasoning over the specific question is
+// what actually delivers it, which is why `generateWithProvider` is wired
+// to call Claude directly below whenever ANTHROPIC_API_KEY is set.
+//
+// AI COST CONTROL: the prompt sent to the model contains ONLY what's
+// needed for this one reading (the drawn card(s) + the question) — never
+// the full rune database and never prior conversation history. The
+// `answer` headline is computed deterministically in this file, not by
+// the model, so the YES/NO vocabulary never drifts and cached mock output
+// stays consistent with live output.
 
 import { Rune, YesNoTendency, getRuneById } from "./runes";
 
@@ -34,9 +54,9 @@ export interface CardReading {
 
 export interface Reading {
   answer: string; // the direct YES/NO/UNCERTAIN-style headline
-  reading: string; // single-card spreads: the full interpretive body. Multi-card spreads: the closing summary that ties the cards together.
-  guidance: string; // what to notice / do
-  whisper: string; // one closing reflective question
+  cardMeaning: string; // what the card generally means, not tied to the question. Empty string for multi-card spreads (see cardReadings instead).
+  interpretation: string; // the rune(s) read specifically against the person's question — the actual divination
+  whisper: string; // a deepening of the interpretation, or one concrete piece of advice
   cardReadings?: CardReading[]; // present for multi-card spreads (three_norns, five_cross) — one entry per drawn card
 }
 
@@ -82,7 +102,14 @@ function classifyQuestion(question: string): QuestionKind {
   ];
   if (yesNoStarters.some((s) => q.startsWith(s + " "))) return "yesno";
 
-  return "open";
+  // This classifier only recognizes English sentence starters. A question
+  // in any other language (or an unrecognized English phrasing) falls
+  // through to here — default to "yesno" rather than "open", so it still
+  // gets a direct YES/LIKELY YES/... headline instead of a bare rune name.
+  // A live AI call (see generateWithProvider) understands the question's
+  // actual content regardless of language; this default only governs the
+  // deterministic headline classifier and the mock fallback.
+  return "yesno";
 }
 
 function headlineFor(kind: QuestionKind, tendency: YesNoTendency, rune: Rune, reversed: boolean): string {
@@ -91,46 +118,6 @@ function headlineFor(kind: QuestionKind, tendency: YesNoTendency, rune: Rune, re
   return rune.name + (reversed ? " (reversed)" : "");
 }
 
-function buildSystemInstruction(): string {
-  return [
-    "You are the voice of ICE WHISPERS, a Nordic rune oracle.",
-    "You never open with a dictionary definition of the rune.",
-    "You always answer the person's actual question directly first, then explain why the rune leads there.",
-    "For yes/no-shaped questions, you open with one of: YES, LIKELY YES, POSSIBLY BUT..., UNCERTAIN, NOT YET, UNLIKELY, NO.",
-    "You write with quiet confidence, warmth, and precision — never generic AI hedging, never disclaimers inside the reading itself.",
-    "You end with exactly one reflective question that adds to the reading, never replaces the answer.",
-  ].join(" ");
-}
-
-/**
- * Builds the minimal context sent to the AI provider for one reading.
- * Deliberately excludes the full rune database — only the drawn card(s).
- */
-function buildUserContext(question: string, cards: DrawnCard[], spread: SpreadType) {
-  const cardContext = cards.map((c) => {
-    const rune = getRuneById(c.runeId);
-    const meaning = c.reversed && rune.reversed ? rune.reversed : rune.upright;
-    return {
-      position: c.position ?? null,
-      name: rune.name,
-      reversed: c.reversed,
-      coreMeaning: rune.coreMeaning,
-      interpretation: "interpretation" in meaning ? meaning.interpretation : rune.upright.interpretation,
-      guidance: meaning.guidance,
-      yesNo: meaning.yesNo,
-      keywords: rune.keywords,
-    };
-  });
-  return { question, spread, cards: cardContext };
-}
-
-/**
- * Rule-based mock reading generator. Uses the exact same structured data
- * a real model would receive, so the output already follows the required
- * "answer → reading → guidance → whisper" structure and reads as genuine
- * divination rather than a dictionary entry. Swap this out once an AI
- * provider is connected — the JSON shape (Reading) does not need to change.
- */
 function meaningOf(rune: Rune, reversed: boolean) {
   return reversed && rune.reversed ? rune.reversed : rune.upright;
 }
@@ -147,8 +134,74 @@ function cardReadingOf(card: DrawnCard, position: string): CardReading {
   };
 }
 
-// Plain-language gloss for each yes/no tendency, used to expand the
-// "Together" summary beyond just naming the tendency.
+interface SpreadContext {
+  headline: string;
+  headlineTendency: YesNoTendency;
+  outcome: DrawnCard; // the card whose meaning most drives the answer (Skuld for three_norns, heart for five_cross, the only card for daily)
+  cardReadings?: CardReading[];
+}
+
+/**
+ * Works out the deterministic parts of a reading — the headline and,
+ * for multi-card spreads, each card's general per-position meaning.
+ * Shared by both the mock generator and the live-AI path so the headline
+ * (and therefore the DB-stored `answer`) never depends on the model.
+ */
+function buildSpreadContext(question: string, cards: DrawnCard[], spread: SpreadType): SpreadContext {
+  const kind = classifyQuestion(question);
+  // Multi-card spreads always answer with a tendency word (yes/no- or
+  // outcome-style) rather than a bare rune name — a single card name isn't
+  // a meaningful "answer" once there are several cards in play.
+  const headlineKind: QuestionKind = spread === "daily" ? kind : kind === "open" ? "yesno" : kind;
+
+  if (spread === "daily") {
+    const outcome = cards[0];
+    const rune = getRuneById(outcome.runeId);
+    const meaning = meaningOf(rune, outcome.reversed);
+    return {
+      headline: headlineFor(headlineKind, meaning.yesNo, rune, outcome.reversed),
+      headlineTendency: meaning.yesNo,
+      outcome,
+    };
+  }
+
+  if (spread === "three_norns") {
+    const [past, present, future] = cards;
+    const fR = getRuneById(future.runeId);
+    const futureMeaning = meaningOf(fR, future.reversed);
+    return {
+      headline: headlineFor(headlineKind, futureMeaning.yesNo, fR, future.reversed),
+      headlineTendency: futureMeaning.yesNo,
+      outcome: future,
+      cardReadings: [
+        cardReadingOf(past, "Urd — Past"),
+        cardReadingOf(present, "Verdandi — Present"),
+        cardReadingOf(future, "Skuld — What May Come"),
+      ],
+    };
+  }
+
+  // five_cross
+  const positions = [
+    "Heart of the situation",
+    "Past influence",
+    "Where this is heading",
+    "Guidance",
+    "Hidden challenge",
+  ];
+  const heart = cards.find((c) => c.position === "Heart of the situation") ?? cards[0];
+  const hR = getRuneById(heart.runeId);
+  const heartMeaning = meaningOf(hR, heart.reversed);
+  return {
+    headline: headlineFor(headlineKind, heartMeaning.yesNo, hR, heart.reversed),
+    headlineTendency: heartMeaning.yesNo,
+    outcome: heart,
+    cardReadings: cards.map((c, i) => cardReadingOf(c, c.position ?? positions[i])),
+  };
+}
+
+// Plain-language gloss for each yes/no tendency, used by the mock
+// generator to expand the synthesis beyond just naming the tendency.
 const TENDENCY_EXPLAINED: Record<YesNoTendency, string> = {
   yes: "the path ahead is clear and supported",
   likely_yes: "things are leaning in your favor, though nothing is guaranteed",
@@ -159,90 +212,61 @@ const TENDENCY_EXPLAINED: Record<YesNoTendency, string> = {
   no: "the runes don't support this outcome as things stand",
 };
 
+/**
+ * Rule-based fallback generator, used only when no ANTHROPIC_API_KEY is
+ * configured or the live call fails. Uses the exact same structured rune
+ * data a real model would receive, so the shape of the output already
+ * matches — but templated text can only approximate a reading that's
+ * genuinely tied to the person's specific question. See generateWithProvider
+ * for the real thing.
+ */
 function generateMock(question: string, cards: DrawnCard[], spread: SpreadType): Reading {
-  const kind = classifyQuestion(question);
-  // Multi-card spreads always answer with a tendency word (yes/no- or
-  // outcome-style) rather than a bare rune name — a single card name isn't
-  // a meaningful "answer" once there are several cards in play.
-  const headlineKind: QuestionKind = spread === "daily" ? kind : kind === "open" ? "yesno" : kind;
+  const ctx = buildSpreadContext(question, cards, spread);
+  const outcomeRune = getRuneById(ctx.outcome.runeId);
+  const outcomeMeaning = meaningOf(outcomeRune, ctx.outcome.reversed);
+  const cleanQuestion = question.trim().replace(/\?$/, "");
 
-  let headline: string;
-  let readingBody: string;
-  let cardReadings: CardReading[] | undefined;
-  // The card whose meaning drives the headline, guidance, and whisper —
-  // for multi-card spreads this is the outcome-facing card (Skuld / the
-  // heart of the situation), not just whichever card was drawn first.
-  let outcome: DrawnCard;
+  let cardMeaning = "";
+  let interpretation: string;
 
   if (spread === "daily") {
-    outcome = cards[0];
-    const rune = getRuneById(outcome.runeId);
-    const meaning = meaningOf(rune, outcome.reversed);
-    headline = headlineFor(headlineKind, meaning.yesNo, rune, outcome.reversed);
-    readingBody = `${rune.name}${outcome.reversed ? " reversed" : ""} answers this by turning your question toward what's real right now: ${meaning.interpretation}`;
-  } else if (spread === "three_norns") {
-    const [past, present, future] = cards;
-    outcome = future;
-    cardReadings = [
-      cardReadingOf(past, "Urd — Past"),
-      cardReadingOf(present, "Verdandi — Present"),
-      cardReadingOf(future, "Skuld — What May Come"),
-    ];
-    const fR = getRuneById(future.runeId);
-    const futureMeaning = meaningOf(fR, future.reversed);
-    headline = headlineFor(headlineKind, futureMeaning.yesNo, fR, future.reversed);
-    const pR = getRuneById(past.runeId);
-    const prR = getRuneById(present.runeId);
-    readingBody =
-      `Together, these three runes point toward ${headline} — ${TENDENCY_EXPLAINED[futureMeaning.yesNo]}. ` +
-      `What shaped this (${pR.name}${past.reversed ? " reversed" : ""}) is still working its way through what's happening now (${prR.name}${present.reversed ? " reversed" : ""}), ` +
-      `and ${fR.name}${future.reversed ? " reversed" : ""} shows where that's heading if nothing changes.`;
+    cardMeaning = `${outcomeRune.name}${ctx.outcome.reversed ? " reversed" : ""} — ${outcomeRune.coreMeaning}`;
+    interpretation =
+      `On "${cleanQuestion}": ${ctx.headline.toLowerCase()}. ${outcomeMeaning.interpretation} ` +
+      `That is what points this toward ${ctx.headline}.`;
   } else {
-    // five_cross
-    const positions = [
-      "Heart of the situation",
-      "Past influence",
-      "Where this is heading",
-      "Guidance",
-      "Hidden challenge",
-    ];
-    cardReadings = cards.map((c, i) => cardReadingOf(c, c.position ?? positions[i]));
-    const heart = cards.find((c) => c.position === "Heart of the situation") ?? cards[0];
-    outcome = heart;
-    const hR = getRuneById(heart.runeId);
-    const heartMeaning = meaningOf(hR, heart.reversed);
-    headline = headlineFor(headlineKind, heartMeaning.yesNo, hR, heart.reversed);
-    readingBody =
-      `Together, these five runes point toward ${headline} — ${TENDENCY_EXPLAINED[heartMeaning.yesNo]}. ` +
-      `At the heart of this sits ${hR.name}${heart.reversed ? " reversed" : ""}; the surrounding runes — past influence, where this is heading, guidance, and the hidden challenge — add depth around that core truth rather than changing it.`;
+    const label = spread === "three_norns" ? "three runes" : "five runes";
+    interpretation =
+      `On "${cleanQuestion}": together, these ${label} point toward ${ctx.headline} — ${TENDENCY_EXPLAINED[ctx.headlineTendency]}. ` +
+      `${outcomeRune.name}${ctx.outcome.reversed ? " reversed" : ""} carries the most weight here: ${outcomeMeaning.interpretation}`;
   }
 
-  const outcomeRune = getRuneById(outcome.runeId);
-  const outcomeMeaning = meaningOf(outcomeRune, outcome.reversed);
-  const guidance = outcomeMeaning.guidance;
-  const whisper = buildWhisper(outcomeRune, outcome.reversed, question);
+  const whisper = buildMockWhisper(outcomeRune, ctx.outcome.reversed, outcomeMeaning.guidance);
 
   return {
-    answer: headline,
-    reading: readingBody,
-    cardReadings,
-    guidance,
+    answer: ctx.headline,
+    cardMeaning,
+    interpretation,
     whisper,
+    cardReadings: ctx.cardReadings,
   };
 }
 
-function buildWhisper(rune: Rune, reversed: boolean, question: string): string {
+function buildMockWhisper(rune: Rune, reversed: boolean, guidance: string): string {
+  // Alternates between a piece of advice (drawn straight from the rune's
+  // own guidance) and a deepening reflection, per the "deepening OR advice"
+  // direction — not forced into a question every time.
   const templates = [
-    `What would change for you if you already knew the answer to "${question.trim().replace(/\?$/, "")}"?`,
-    `Where in this situation are you already acting as if ${rune.coreMeaning.split(" — ")[0].toLowerCase()} were true?`,
-    `If ${rune.name.toLowerCase()}${reversed ? " reversed" : ""} is right, what's the smallest honest step you'd take next?`,
+    guidance,
+    `The deeper thread here is ${rune.name.toLowerCase()}${reversed ? " reversed" : ""}: ${rune.coreMeaning.split(" — ")[0].toLowerCase()} is quietly shaping more of this than it first looks like.`,
   ];
   return templates[Math.floor(Math.random() * templates.length)];
 }
 
 /**
  * Entry point used by the API route. Tries a real provider if configured,
- * otherwise falls back to the mock generator so the product works today.
+ * otherwise falls back to the mock generator so the product always
+ * returns a complete reading.
  */
 export async function generateReading(
   question: string,
@@ -255,7 +279,39 @@ export async function generateReading(
     return generateMock(question, cards, spread);
   }
 
-  return generateWithProvider(apiKey, question, cards, spread);
+  try {
+    return await generateWithProvider(apiKey, question, cards, spread);
+  } catch (err) {
+    // Never let an AI-provider hiccup break the core experience — the
+    // person still gets a complete, well-structured reading.
+    console.error("generateWithProvider failed, falling back to mock:", err);
+    return generateMock(question, cards, spread);
+  }
+}
+
+function buildSystemInstruction(): string {
+  return [
+    "You are the voice of ICE WHISPERS, a Nordic rune oracle.",
+    "Someone has asked a real question and drawn a specific rune (or several, in specific positions). Your only job is to interpret the rune(s) SPECIFICALLY in relation to their exact question.",
+    "Never open with, or fall back on, a dictionary definition of the rune detached from the question — always connect it explicitly to what they actually asked, in plain, clear English.",
+    "The directional headline (e.g. LIKELY YES) is already decided and given to you — do not restate it as a bare label or contradict it; explain WHY the rune(s) lead there.",
+    "Write with quiet confidence and precision. No generic AI hedging, no disclaimers inside the reading itself, no mystical padding that doesn't say anything.",
+    "Respond with ONLY a single valid JSON object, no markdown fences, no commentary before or after it.",
+  ].join(" ");
+}
+
+function cardBlock(card: DrawnCard) {
+  const rune = getRuneById(card.runeId);
+  const meaning = meaningOf(rune, card.reversed);
+  return {
+    position: card.position ?? null,
+    name: rune.name,
+    reversed: card.reversed,
+    coreMeaning: rune.coreMeaning,
+    interpretation: meaning.interpretation,
+    guidance: meaning.guidance,
+    keywords: rune.keywords,
+  };
 }
 
 async function generateWithProvider(
@@ -264,38 +320,62 @@ async function generateWithProvider(
   cards: DrawnCard[],
   spread: SpreadType
 ): Promise<Reading> {
-  const context = buildUserContext(question, cards, spread);
+  const ctx = buildSpreadContext(question, cards, spread);
   const system = buildSystemInstruction();
 
-  // Example wiring for Claude — uncomment and adjust once ANTHROPIC_API_KEY is set.
-  // Keep this the ONLY function that changes if you switch providers.
-  //
-  // const res = await fetch("https://api.anthropic.com/v1/messages", {
-  //   method: "POST",
-  //   headers: {
-  //     "content-type": "application/json",
-  //     "x-api-key": apiKey,
-  //     "anthropic-version": "2023-06-01",
-  //   },
-  //   body: JSON.stringify({
-  //     model: "claude-sonnet-4-6",
-  //     max_tokens: 700,
-  //     system,
-  //     messages: [
-  //       {
-  //         role: "user",
-  //         content:
-  //           `Question: ${context.question}\nSpread: ${context.spread}\n` +
-  //           `Cards: ${JSON.stringify(context.cards)}\n\n` +
-  //           `Respond ONLY as JSON: {"answer": string, "reading": string, "guidance": string, "whisper": string}`,
-  //       },
-  //     ],
-  //   }),
-  // });
-  // const data = await res.json();
-  // const text = data.content?.[0]?.text ?? "{}";
-  // return JSON.parse(text.replace(/```json|```/g, "").trim());
+  const isSingleCard = spread === "daily";
+  const userPrompt = isSingleCard
+    ? [
+        `Question: "${question.trim()}"`,
+        `Established headline (do not change): ${ctx.headline}`,
+        `Card drawn: ${JSON.stringify(cardBlock(cards[0]))}`,
+        "",
+        "Return ONLY this JSON shape:",
+        `{"cardMeaning": "1-2 sentences: what this rune generally represents, in plain English, not yet tied to the question.", "interpretation": "3-5 sentences: read this rune SPECIFICALLY against the question above, referencing its concrete details, explaining exactly why it leads to '${ctx.headline}'. No fluff, no restating the dictionary meaning without connecting it to the question.", "whisper": "1-2 sentences: either a deepening insight about the interpretation, or one clear, concrete piece of advice for this specific situation. Personal, not generic."}`,
+      ].join("\n")
+    : [
+        `Question: "${question.trim()}"`,
+        `Spread: ${spread === "three_norns" ? "Three Norns (past / present / future)" : "Five Rune Cross"}`,
+        `Established headline (do not change): ${ctx.headline}`,
+        `Cards drawn, in position order: ${JSON.stringify(cards.map(cardBlock))}`,
+        "",
+        "Return ONLY this JSON shape:",
+        `{"interpretation": "4-6 sentences: synthesize how these specific cards, in these specific positions, answer the question above. Reference its concrete details. Explain how the cards relate to each other and why together they lead to '${ctx.headline}'. Plain English, no fluff, no listing each card as an isolated dictionary entry.", "whisper": "1-2 sentences: either a deepening insight, or one clear, concrete piece of advice for this specific situation."}`,
+      ].join("\n");
 
-  // Until wired up, keep behaving like the mock so nothing breaks.
-  return generateMock(question, cards, spread);
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-5",
+      max_tokens: 600,
+      system,
+      messages: [{ role: "user", content: userPrompt }],
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Anthropic API error ${res.status}: ${await res.text().catch(() => "")}`);
+  }
+
+  const data = await res.json();
+  const text: string = data.content?.[0]?.text ?? "{}";
+  const parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
+
+  if (typeof parsed.interpretation !== "string" || typeof parsed.whisper !== "string") {
+    throw new Error("Malformed AI response: missing interpretation/whisper");
+  }
+
+  return {
+    answer: ctx.headline,
+    cardMeaning: isSingleCard ? String(parsed.cardMeaning ?? "") : "",
+    interpretation: parsed.interpretation,
+    whisper: parsed.whisper,
+    cardReadings: ctx.cardReadings,
+  };
 }
+

@@ -23,12 +23,11 @@ export default function ReadingResult({ reading }: { reading: Reading }) {
               <p className="text-parchment/90 leading-relaxed">{c.text}</p>
             </div>
           ))}
-          <Section title="Together" text={reading.reading} />
         </>
       ) : (
-        <Section title="The Reading" text={reading.reading} />
+        <Section title="The Card" text={reading.cardMeaning} />
       )}
-      <Section title="The Guidance" text={reading.guidance} />
+      <Section title="Your Reading" text={reading.interpretation} />
 
       <div className="rounded-2xl border border-wyrd-400/25 bg-wyrd-600/[0.06] px-5 py-4">
         <p className="uppercase tracking-[0.3em] text-[10px] text-wyrd-400/90 mb-2">The Whisper</p>
@@ -46,3 +45,4 @@ function Section({ title, text }: { title: string; text: string }) {
     </div>
   );
 }
+

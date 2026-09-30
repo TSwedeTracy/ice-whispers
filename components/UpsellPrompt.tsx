@@ -1,7 +1,7 @@
 "use client";
 
 export default function UpsellPrompt() {
-  async function checkout(product: "topup" | "subscription") {
+  async function checkout(product: "dayPass" | "subscription") {
     const res = await fetch("/api/checkout", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -22,18 +22,18 @@ export default function UpsellPrompt() {
 
       <div className="flex flex-col gap-3">
         <button
-          onClick={() => checkout("topup")}
+          onClick={() => checkout("dayPass")}
           className="w-full rounded-full bg-frost-500 text-void font-semibold py-3 hover:bg-frost-300 transition-colors"
         >
-          Continue Today — $0.99
+          Continue Today — $1
         </button>
-        <p className="text-parchment/40 text-xs -mt-1">Unlock up to 5 more digital rune readings today.</p>
+        <p className="text-parchment/40 text-xs -mt-1">Unlimited digital rune readings for the next 24 hours.</p>
 
         <button
           onClick={() => checkout("subscription")}
           className="w-full rounded-full border border-wyrd-400/50 text-wyrd-400 font-semibold py-3 hover:bg-wyrd-400/10 transition-colors"
         >
-          Go Unlimited — $4.99/month
+          Go Unlimited — $4.90/month
         </button>
         <p className="text-parchment/40 text-xs -mt-1">
           ICE WHISPERS+ — unlimited readings, Three Norns, Five Rune Cross, reading history.
@@ -42,3 +42,4 @@ export default function UpsellPrompt() {
     </div>
   );
 }
+

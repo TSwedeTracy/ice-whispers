@@ -14,18 +14,26 @@ export function stripeClient(): Stripe {
 
 // Product config lives here, not scattered across routes, so pricing is
 // one edit away from changing (and eventually admin-configurable).
+//
+// FAIR_USE_DAILY_CAP: dayPass and subscription both grant "unlimited"
+// readings, but "unlimited" still needs a server-side ceiling so a script
+// can't turn a single $1 day pass into thousands of AI calls. This cap is
+// generous enough that no real person will ever hit it (see lib/session.ts).
+export const FAIR_USE_DAILY_CAP = 25;
+
 export const PRICING = {
-  topUp: {
+  dayPass: {
     label: "Continue Today",
-    amountCents: 99,
+    amountCents: 100,
     currency: "usd",
-    description: "5 more digital rune readings, today only.",
+    description: "Unlimited digital rune readings for the next 24 hours.",
   },
   subscription: {
     label: "ICE WHISPERS+",
-    amountCents: 499,
+    amountCents: 490,
     currency: "usd",
     interval: "month" as const,
     description: "Unlimited readings, Three Norns, Five Rune Cross, reading history.",
   },
 };
+

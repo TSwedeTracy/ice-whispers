@@ -13,9 +13,11 @@ const SPREADS = [
 export default function QuestionForm({
   onSubmit,
   isPlus,
+  onLockedSpreadSelect,
 }: {
   onSubmit: (question: string, spread: "daily" | "three_norns" | "five_cross") => void;
   isPlus: boolean;
+  onLockedSpreadSelect: () => void;
 }) {
   const [question, setQuestion] = useState("");
   const [spread, setSpread] = useState<"daily" | "three_norns" | "five_cross">("daily");
@@ -38,13 +40,12 @@ export default function QuestionForm({
               <button
                 key={s.id}
                 type="button"
-                disabled={locked}
-                onClick={() => setSpread(s.id)}
+                onClick={() => (locked ? onLockedSpreadSelect() : setSpread(s.id))}
                 className={`px-4 py-2 rounded-full text-sm border transition-colors ${
                   spread === s.id
                     ? "border-frost-500 text-frost-100 bg-frost-500/10"
                     : "border-white/10 text-parchment/60 hover:border-white/25"
-                } ${locked ? "opacity-40 cursor-not-allowed" : ""}`}
+                } ${locked ? "opacity-40" : ""}`}
                 title={locked ? "Unlock with ICE WHISPERS+" : s.subtitle}
               >
                 {s.label}
@@ -74,3 +75,4 @@ export default function QuestionForm({
     </div>
   );
 }
+
