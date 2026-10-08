@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { v4 as uuidv4 } from "uuid";
 import { supabaseAdmin } from "./supabase";
-import { FAIR_USE_DAILY_CAP } from "./stripe";
+import { FAIR_USE_DAILY_CAP, monthlyQuotaFor } from "./stripe";
 
 const VISITOR_COOKIE = "iw_visitor";
 const FREE_LIMIT_PER_DAY = 1; // one free Daily Rune reading per 24h
@@ -39,6 +39,7 @@ export type EntitlementCheck =
   | { allowed: true; reason: "free_daily" | "extra_purchased" | "subscription" | "day_pass" }
   | { allowed: false; reason: "limit_reached"; suggestUpsell: true }
   | { allowed: false; reason: "fair_use_cap"; suggestUpsell: false }
+  | { allowed: false; reason: "monthly_quota"; suggestUpsell: true; plan: string | null }
   | { allowed: false; reason: "service_unavailable"; suggestUpsell: false };
 
 /**
@@ -53,11 +54,15 @@ export type EntitlementCheck =
  * missing feature. Any DB error here is also logged so it's diagnosable
  * from Vercel's function logs instead of failing silently.
  *
- * FAIR USE CAP: "unlimited" (subscription and the 24h day pass) is still
+ * SUBSCRIPTIONS: Seeker ($5.90/month) = 100 readings per billing period,
+ * ICE WHISPERS+ ($9.90/month) = 500. Usage is counted from the readings
+ * table since entitlements.current_period_start, so it resets automatically
+ * when Stripe renews the subscription.
+ *
+ * FAIR USE CAP: every paid option (day pass and subscriptions) is also
  * capped at FAIR_USE_DAILY_CAP readings per calendar day, tracked via
- * usage_daily.readings_today. This is generous enough that no real person
- * will ever hit it, but stops a script from turning a $1 day pass or a
- * $4.90/month subscription into unbounded AI cost. See lib/stripe.ts.
+ * usage_daily.readings_today, so a script can never turn a purchase into
+ * unbounded AI cost. See lib/stripe.ts.
  */
 export async function checkAndConsumeEntitlement(visitorId: string): Promise<EntitlementCheck> {
   const db = supabaseAdmin();
@@ -65,7 +70,7 @@ export async function checkAndConsumeEntitlement(visitorId: string): Promise<Ent
   // 1. Look up any entitlement (subscription or day pass) first.
   const { data: ent, error: entError } = await db
     .from("entitlements")
-    .select("status, current_period_end")
+    .select("status, plan, current_period_start, current_period_end")
     .eq("visitor_id", visitorId)
     .maybeSingle();
 
@@ -77,6 +82,25 @@ export async function checkAndConsumeEntitlement(visitorId: string): Promise<Ent
   const hasUnlimitedGrant =
     (ent?.status === "active" || ent?.status === "day_pass") &&
     (!ent.current_period_end || new Date(ent.current_period_end) > new Date());
+
+  // Subscriptions have a monthly reading quota (day pass does not).
+  if (hasUnlimitedGrant && ent!.status === "active") {
+    const periodStart = ent!.current_period_start
+      ? new Date(ent!.current_period_start)
+      : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const { count, error: countError } = await db
+      .from("readings")
+      .select("id", { count: "exact", head: true })
+      .eq("visitor_id", visitorId)
+      .gte("created_at", periodStart.toISOString());
+    if (countError) {
+      console.error("checkAndConsumeEntitlement: monthly count failed, failing closed:", countError.message);
+      return { allowed: false, reason: "service_unavailable", suggestUpsell: false };
+    }
+    if ((count ?? 0) >= monthlyQuotaFor(ent!.plan)) {
+      return { allowed: false, reason: "monthly_quota", suggestUpsell: true, plan: ent!.plan ?? null };
+    }
+  }
 
   // 2. Today's usage row (create if missing).
   const today = new Date().toISOString().slice(0, 10);

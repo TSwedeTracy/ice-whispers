@@ -22,6 +22,7 @@ create table if not exists usage_daily (
   free_reading_used boolean not null default false,
   extra_readings_purchased int not null default 0, -- from the $0.99 top-up
   extra_readings_used int not null default 0,
+  readings_today int not null default 0,          -- fair-use cap counter
   primary key (visitor_id, usage_date)
 );
 
@@ -30,7 +31,9 @@ create table if not exists entitlements (
   visitor_id uuid primary key references visitors(id) on delete cascade,
   stripe_customer_id text,
   stripe_subscription_id text,
-  status text not null default 'inactive', -- inactive | active | past_due | canceled
+  status text not null default 'inactive', -- inactive | active | day_pass | past_due | canceled
+  plan text,                               -- seeker (100/month) | plus (500/month) | null for day pass
+  current_period_start timestamptz,
   current_period_end timestamptz,
   updated_at timestamptz not null default now()
 );

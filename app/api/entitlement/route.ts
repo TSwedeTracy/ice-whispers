@@ -10,12 +10,14 @@ export async function GET() {
 
   const { data: ent } = await db
     .from("entitlements")
-    .select("status, current_period_end")
+    .select("status, plan, current_period_end")
     .eq("visitor_id", visitorId)
     .maybeSingle();
 
-  const isPlus =
-    ent?.status === "active" && (!ent.current_period_end || new Date(ent.current_period_end) > new Date());
+  const current = !ent?.current_period_end || new Date(ent.current_period_end) > new Date();
+  // Seeker and ICE WHISPERS+ subscribers unlock Three Norns and Five Rune Cross.
+  const isPlus = ent?.status === "active" && current;
+  const hasDayPass = ent?.status === "day_pass" && current;
 
-  return NextResponse.json({ isPlus: Boolean(isPlus) });
+  return NextResponse.json({ isPlus: Boolean(isPlus), plan: isPlus ? ent?.plan ?? "seeker" : null, hasDayPass: Boolean(hasDayPass) });
 }

@@ -12,28 +12,40 @@ export function stripeClient(): Stripe {
   return cached;
 }
 
-// Product config lives here, not scattered across routes, so pricing is
-// one edit away from changing (and eventually admin-configurable).
+// All pricing lives here — change a price or quota in ONE place.
 //
-// FAIR_USE_DAILY_CAP: dayPass and subscription both grant "unlimited"
-// readings, but "unlimited" still needs a server-side ceiling so a script
-// can't turn a single $1 day pass into thousands of AI calls. This cap is
-// generous enough that no real person will ever hit it (see lib/session.ts).
+// FAIR_USE_DAILY_CAP: a server-side ceiling per calendar day for every paid
+// option, so a script can never turn a purchase into thousands of AI calls.
 export const FAIR_USE_DAILY_CAP = 25;
+
+export type ProductId = "dayPass" | "seeker" | "plus";
+export type PlanId = "seeker" | "plus"; // stored in entitlements.plan
 
 export const PRICING = {
   dayPass: {
-    label: "Continue Today",
+    label: "Day Pass",
     amountCents: 100,
     currency: "usd",
     description: "Unlimited digital rune readings for the next 24 hours.",
   },
-  subscription: {
-    label: "ICE WHISPERS+",
-    amountCents: 490,
+  seeker: {
+    label: "ICE WHISPERS Seeker",
+    amountCents: 590,
     currency: "usd",
     interval: "month" as const,
-    description: "Unlimited readings, Three Norns, Five Rune Cross, reading history.",
+    monthlyReadings: 100,
+    description: "100 rune readings a month, Three Norns, Five Rune Cross.",
+  },
+  plus: {
+    label: "ICE WHISPERS+",
+    amountCents: 990,
+    currency: "usd",
+    interval: "month" as const,
+    monthlyReadings: 500,
+    description: "500 rune readings a month, Three Norns, Five Rune Cross. Most value.",
   },
 };
 
+export function monthlyQuotaFor(plan: string | null | undefined): number {
+  return plan === "plus" ? PRICING.plus.monthlyReadings : PRICING.seeker.monthlyReadings;
+}

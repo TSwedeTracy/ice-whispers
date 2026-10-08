@@ -8,10 +8,12 @@ import RuneCard from "@/components/RuneCard";
 import ReadingResult from "@/components/ReadingResult";
 import WaitlistPrompt from "@/components/WaitlistPrompt";
 import UpsellPrompt from "@/components/UpsellPrompt";
+import SafetyNotice from "@/components/SafetyNotice";
 import { Reading, DrawnCard, SpreadType } from "@/lib/ai";
+import type { SafetyMessage } from "@/lib/safety";
 import { HERO_BG } from "@/lib/rune-assets";
 
-type Stage = "ask" | "drawing" | "revealing" | "locked";
+type Stage = "ask" | "drawing" | "revealing" | "locked" | "care";
 
 export default function Home() {
   const [stage, setStage] = useState<Stage>("ask");
@@ -23,6 +25,8 @@ export default function Home() {
   const [reading, setReading] = useState<Reading | null>(null);
   const [isPlus, setIsPlus] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [safetyMessage, setSafetyMessage] = useState<SafetyMessage | null>(null);
+  const [upsellReason, setUpsellReason] = useState<"limit_reached" | "monthly_quota" | "locked_spread">("limit_reached");
 
   useEffect(() => {
     fetch("/api/entitlement")
@@ -30,6 +34,13 @@ export default function Home() {
       .then((data) => setIsPlus(Boolean(data.isPlus)))
       .catch(() => {});
   }, []);
+
+  function showCare(message: SafetyMessage) {
+    setSafetyMessage(message);
+    setCards([]);
+    setReading(null);
+    setStage("care");
+  }
 
   async function handleAsk(q: string, s: SpreadType) {
     setQuestion(q);
@@ -40,10 +51,12 @@ export default function Home() {
     const res = await fetch("/api/draw", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ spread: s }),
+      body: JSON.stringify({ spread: s, question: q }),
     });
 
     if (res.status === 402) {
+      const body = await res.json().catch(() => ({}));
+      setUpsellReason(body.error === "monthly_quota" || body.error === "locked_spread" ? body.error : "limit_reached");
       setStage("locked");
       return;
     }
@@ -56,30 +69,43 @@ export default function Home() {
     }
 
     const data = await res.json();
+
+    if (data.blocked) {
+      showCare(data.blocked);
+      return;
+    }
+
     setCards(data.cards);
     setRevealedCount(0);
     setShowSummary(false);
     setReading(null);
-    setStage("revealing"); // cards visible, back-side, awaiting tap — one at a time
+    setStage("revealing");
 
     // Fetch the full reading now, in the background, so each tap only
     // reveals what's already there — no waiting between cards.
     fetch("/api/reading", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ question: q, spread: s, cards: data.cards }),
+      body: JSON.stringify({ question: q, drawToken: data.drawToken }),
     })
       .then((r) => r.json())
-      .then(setReading)
-      .catch(() => {});
+      .then((result) => {
+        if (result.blocked) showCare(result.blocked);
+        else if (result.error) {
+          setErrorMessage(result.message ?? "Something went wrong — try again in a moment.");
+          setStage("ask");
+        } else setReading(result);
+      })
+      .catch(() => {
+        setErrorMessage("The runes are unreachable right now — try again shortly.");
+        setStage("ask");
+      });
   }
 
   function handleAdvance() {
     if (revealedCount < cards.length) {
       const nextCount = revealedCount + 1;
       setRevealedCount(nextCount);
-      // Single-card spreads have no per-card spotlight to pause on — go
-      // straight to the full result, same as before.
       if (nextCount >= cards.length && spread === "daily") {
         setShowSummary(true);
       }
@@ -95,9 +121,8 @@ export default function Home() {
     setRevealedCount(0);
     setShowSummary(false);
     setReading(null);
+    setSafetyMessage(null);
   }
-
-  const allRevealed = cards.length > 0 && revealedCount >= cards.length;
 
   return (
     <main className="relative min-h-screen flex flex-col items-center justify-center px-6 py-16 overflow-hidden">
@@ -110,7 +135,14 @@ export default function Home() {
       <div className="relative z-10 w-full flex flex-col items-center gap-14">
         {stage === "ask" && (
           <>
-            <QuestionForm onSubmit={handleAsk} isPlus={isPlus} onLockedSpreadSelect={() => setStage("locked")} />
+            <QuestionForm
+              onSubmit={handleAsk}
+              isPlus={isPlus}
+              onLockedSpreadSelect={() => {
+                setUpsellReason("locked_spread");
+                setStage("locked");
+              }}
+            />
             {errorMessage && (
               <p className="text-red-400/90 text-sm -mt-8 text-center max-w-sm">{errorMessage}</p>
             )}
@@ -119,7 +151,16 @@ export default function Home() {
 
         {stage === "locked" && (
           <>
-            <UpsellPrompt />
+            <UpsellPrompt reason={upsellReason} />
+            <button onClick={reset} className="text-parchment/40 text-sm underline underline-offset-4">
+              Back
+            </button>
+          </>
+        )}
+
+        {stage === "care" && safetyMessage && (
+          <>
+            <SafetyNotice message={safetyMessage} />
             <button onClick={reset} className="text-parchment/40 text-sm underline underline-offset-4">
               Back
             </button>
@@ -194,8 +235,9 @@ export default function Home() {
       </div>
 
       <footer className="relative z-10 mt-16 flex flex-col items-center gap-4 text-center text-parchment/30 text-xs max-w-md">
-        ICE WHISPERS™ readings are for entertainment, personal insight, and reflection, and are not a
-        substitute for professional medical, legal, or financial advice.
+        ICE WHISPERS™ readings are for entertainment, personal insight and reflection only. They are not
+        advice, and they are not a substitute for professional medical, psychological, legal or financial
+        advice. You are always responsible for your own decisions and actions, whatever a reading says.
       </footer>
 
       {revealedCount > 0 && !showSummary && reading?.cardReadings && (
@@ -217,13 +259,14 @@ export default function Home() {
             <div className="rounded-2xl border border-white/10 bg-void/60 px-5 py-4 flex-1">
               {(() => {
                 const c = reading.cardReadings![revealedCount - 1];
+                const reversedLabel = reading.labels?.reversed ?? "reversed";
                 return (
                   <>
                     <p className="uppercase tracking-[0.3em] text-[10px] text-frost-300/70 mb-2">{c.position}</p>
                     <p className="font-display text-lg text-frost-100 mb-2">
                       <span className="mr-2">{c.symbol}</span>
                       {c.runeName}
-                      {c.reversed ? " (reversed)" : ""}
+                      {c.reversed ? ` (${reversedLabel})` : ""}
                     </p>
                     <p className="text-parchment/90 leading-relaxed">{c.text}</p>
                     <p className="text-parchment/40 text-xs mt-4">
@@ -239,4 +282,3 @@ export default function Home() {
     </main>
   );
 }
-
