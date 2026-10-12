@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Cinzel, EB_Garamond } from "next/font/google";
 import "./globals.css";
+import LegalLinks from "@/components/LegalLinks";
 
 const display = Cinzel({
   subsets: ["latin"],
@@ -25,6 +26,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className={`${display.variable} ${body.variable}`}>
       <body className="bg-void text-parchment font-body antialiased min-h-screen">
         {children}
+        <footer className="relative z-10 pb-8">
+          <LegalLinks />
+        </footer>
       </body>
     </html>
   );

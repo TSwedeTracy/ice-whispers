@@ -51,3 +51,46 @@ body {
     display: none;
   }
 }
+
+/* Rune journal → "Download PDF" uses the browser's Save as PDF. */
+@media print {
+  @page {
+    margin: 16mm;
+  }
+  body {
+    background: #fff !important;
+    color: #111 !important;
+  }
+  .journal * {
+    color: #111 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+  .journal-entry {
+    border: 1px solid #ccc !important;
+    break-inside: avoid;
+  }
+  .journal textarea {
+    resize: none;
+    height: auto;
+    overflow: visible;
+  }
+}
+
+.legal h2 {
+  font-family: var(--font-display), serif;
+  color: #eaf6ff;
+  font-size: 1.15rem;
+  margin-top: 2rem;
+}
+.legal ul {
+  list-style: disc;
+  padding-left: 1.25rem;
+}
+.legal li + li {
+  margin-top: 0.35rem;
+}
+.legal a {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
