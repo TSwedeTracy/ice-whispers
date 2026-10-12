@@ -76,3 +76,26 @@ create table if not exists readers (
   approved boolean not null default false,
   created_at timestamptz not null default now()
 );
+
+-- ── Added 2026-10 (accounts, ICE WHISPERS+, journal) ──────────────────────
+alter table visitors add column if not exists user_id uuid references auth.users(id) on delete set null;
+alter table entitlements add column if not exists user_id uuid references auth.users(id) on delete set null;
+alter table entitlements add column if not exists billing_interval text;        -- month | year
+create index if not exists entitlements_user_idx on entitlements (user_id);
+alter table readings add column if not exists user_id uuid references auth.users(id) on delete cascade;
+alter table readings add column if not exists saved boolean not null default false; -- in the member's journal
+alter table readings add column if not exists notes text;
+alter table readings add column if not exists outcome_notes text;               -- "what happened next"
+alter table readings add column if not exists suggestions jsonb;
+alter table readings add column if not exists language text;
+alter table readings add column if not exists updated_at timestamptz;
+create index if not exists readings_user_idx on readings (user_id, created_at desc);
+
+-- Privacy: text of readings NOT saved to a journal is erased after 24 hours.
+create extension if not exists pg_cron;
+create or replace function purge_unsaved_reading_text() returns void
+language sql security definer set search_path = public as $$
+  update readings set question = '', reading = '', guidance = '', whisper = '', suggestions = null
+   where saved = false and created_at < now() - interval '24 hours' and question <> '';
+$$;
+select cron.schedule('purge-unsaved-reading-text', '17 * * * *', 'select purge_unsaved_reading_text()');

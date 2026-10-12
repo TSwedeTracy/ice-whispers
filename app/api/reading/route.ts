@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateReading } from "@/lib/ai";
 import { getOrCreateVisitorId } from "@/lib/session";
+import { getCurrentUser } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabase";
-import { checkQuestionSafety, safetyMessageFor } from "@/lib/safety";
+import { quickSafetyCheck, safetyMessageFor } from "@/lib/safety";
 import { verifyDraw, hashQuestion } from "@/lib/draw-token";
 
 export const runtime = "edge";
@@ -17,28 +18,27 @@ export async function POST(req: NextRequest) {
   const question: string = String(body.question).slice(0, 500);
   const visitorId = await getOrCreateVisitorId();
 
-  // Only generate a reading for a real draw from /api/draw (which enforced
-  // the free limit / payment), for this visitor and this exact question.
-  // The cards come from the signed token — never from the browser.
+  // Only read a real draw from /api/draw (which enforced limits and the full
+  // safety check) for this visitor and this exact question. The cards come
+  // from the signed token — never from the browser.
   const draw = await verifyDraw(body.drawToken);
   if (!draw || draw.v !== visitorId || draw.q !== (await hashQuestion(question))) {
     return NextResponse.json({ error: "invalid_draw", message: "Please draw your rune again." }, { status: 403 });
   }
 
-  // Checked again so the safety rule can't be skipped by calling this
-  // endpoint directly.
-  const safety = await checkQuestionSafety(question);
-  if (safety.category !== "ok") {
-    return NextResponse.json({ blocked: safetyMessageFor(safety.category, safety.language) });
+  // Extra (free) keyword check — the full AI safety check already ran at the draw.
+  const category = quickSafetyCheck(question);
+  if (category !== "ok") {
+    return NextResponse.json({ blocked: safetyMessageFor(category, "en") });
   }
 
   const db = supabaseAdmin();
+  const user = await getCurrentUser();
 
-  // Each draw can only be read once. If it already was (e.g. a refresh),
-  // return the stored reading instead of paying for a new AI call.
+  // Each draw is read once. A refresh returns the stored reading for free.
   const { data: existing } = await db
     .from("readings")
-    .select("id, created_at, answer, reading, guidance, whisper")
+    .select("id, created_at, answer, reading, guidance, whisper, suggestions, saved")
     .eq("id", draw.id)
     .maybeSingle();
   if (existing) {
@@ -47,19 +47,23 @@ export async function POST(req: NextRequest) {
       cardMeaning: existing.reading,
       interpretation: existing.guidance,
       whisper: existing.whisper,
+      suggestions: existing.suggestions ?? [],
       id: existing.id,
+      saved: existing.saved,
       createdAt: existing.created_at,
     });
   }
 
   const reading = await generateReading(question, draw.c, draw.s);
 
-  // Store so reopening history never regenerates (cost control).
+  // Stored so history never regenerates. Not shown in the journal unless the
+  // member chooses "Save to journal"; unsaved text is erased after 24 hours.
   const { data, error } = await db
     .from("readings")
     .insert({
       id: draw.id,
       visitor_id: visitorId,
+      user_id: user?.id ?? null,
       spread_type: draw.s,
       question,
       cards: draw.c,
@@ -67,6 +71,8 @@ export async function POST(req: NextRequest) {
       reading: reading.cardMeaning,
       guidance: reading.interpretation,
       whisper: reading.whisper,
+      suggestions: reading.suggestions ?? [],
+      language: reading.language ?? null,
     })
     .select("id, created_at")
     .single();
@@ -78,6 +84,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     ...reading,
     id: data?.id ?? null,
+    saved: false,
     createdAt: data?.created_at ?? new Date().toISOString(),
   });
 }

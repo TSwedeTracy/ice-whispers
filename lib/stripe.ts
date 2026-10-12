@@ -12,40 +12,37 @@ export function stripeClient(): Stripe {
   return cached;
 }
 
-// All pricing lives here — change a price or quota in ONE place.
-//
-// FAIR_USE_DAILY_CAP: a server-side ceiling per calendar day for every paid
-// option, so a script can never turn a purchase into thousands of AI calls.
-export const FAIR_USE_DAILY_CAP = 25;
+// ── All pricing and limits live here — change them in ONE place. ──────────
+// Prices are what the customer pays (VAT included).
 
-export type ProductId = "dayPass" | "seeker" | "plus";
-export type PlanId = "seeker" | "plus"; // stored in entitlements.plan
+export const LIMITS = {
+  freeReadingsPerDay: 1, // one free Daily Rune per day
+  dayPassReadings: 10, // "Unlock 24 hours" — single-rune readings
+  memberReadingsPerMonth: 300, // ICE WHISPERS+ — a monthly pool, unused readings last the whole month
+  burstPerHour: 30, // anti-bot ceiling for everyone; no real person hits it
+};
+
+export type ProductId = "dayPass" | "plusMonthly" | "plusYearly";
 
 export const PRICING = {
   dayPass: {
-    label: "Day Pass",
+    label: "ICE WHISPERS — 24 hours",
     amountCents: 100,
     currency: "usd",
-    description: "Unlimited digital rune readings for the next 24 hours.",
+    description: `Up to ${LIMITS.dayPassReadings} single-rune readings for the next 24 hours.`,
   },
-  seeker: {
-    label: "ICE WHISPERS Seeker",
-    amountCents: 590,
+  plusMonthly: {
+    label: "ICE WHISPERS+ (monthly)",
+    amountCents: 970,
     currency: "usd",
     interval: "month" as const,
-    monthlyReadings: 100,
-    description: "100 rune readings a month, Three Norns, Five Rune Cross.",
+    description: "All spreads — 1, 3 and 5 runes — and your personal rune journal.",
   },
-  plus: {
-    label: "ICE WHISPERS+",
-    amountCents: 990,
+  plusYearly: {
+    label: "ICE WHISPERS+ (yearly)",
+    amountCents: 9700,
     currency: "usd",
-    interval: "month" as const,
-    monthlyReadings: 500,
-    description: "500 rune readings a month, Three Norns, Five Rune Cross. Most value.",
+    interval: "year" as const,
+    description: "All spreads — 1, 3 and 5 runes — and your personal rune journal. Two months free.",
   },
 };
-
-export function monthlyQuotaFor(plan: string | null | undefined): number {
-  return plan === "plus" ? PRICING.plus.monthlyReadings : PRICING.seeker.monthlyReadings;
-}

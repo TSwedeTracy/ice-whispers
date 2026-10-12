@@ -1,23 +1,30 @@
 import { NextResponse } from "next/server";
-import { getOrCreateVisitorId } from "@/lib/session";
+import { getOrCreateVisitorId, getAccess, monthWindowStart } from "@/lib/session";
+import { getCurrentUser } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabase";
+import { LIMITS } from "@/lib/stripe";
 
 export const runtime = "edge";
 
 export async function GET() {
   const visitorId = await getOrCreateVisitorId();
-  const db = supabaseAdmin();
+  const user = await getCurrentUser();
+  const access = await getAccess(visitorId, user);
 
-  const { data: ent } = await db
-    .from("entitlements")
-    .select("status, plan, current_period_end")
-    .eq("visitor_id", visitorId)
-    .maybeSingle();
+  let readingsLeft: number | null = null;
+  if (access?.member) {
+    const since = monthWindowStart(access.member.current_period_start).toISOString();
+    let q = supabaseAdmin().from("readings").select("id", { count: "exact", head: true }).gte("created_at", since);
+    q = access.member.user_id ? q.eq("user_id", access.member.user_id) : q.eq("visitor_id", access.member.visitor_id);
+    const { count } = await q;
+    readingsLeft = Math.max(0, LIMITS.memberReadingsPerMonth - (count ?? 0));
+  }
 
-  const current = !ent?.current_period_end || new Date(ent.current_period_end) > new Date();
-  // Seeker and ICE WHISPERS+ subscribers unlock Three Norns and Five Rune Cross.
-  const isPlus = ent?.status === "active" && current;
-  const hasDayPass = ent?.status === "day_pass" && current;
-
-  return NextResponse.json({ isPlus: Boolean(isPlus), plan: isPlus ? ent?.plan ?? "seeker" : null, hasDayPass: Boolean(hasDayPass) });
+  return NextResponse.json({
+    isPlus: Boolean(access?.member),
+    interval: access?.member?.billing_interval ?? null,
+    readingsLeft,
+    hasDayPass: Boolean(access?.dayPass),
+    user: user ? { email: user.email } : null,
+  });
 }

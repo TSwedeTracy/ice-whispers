@@ -1,176 +1,181 @@
 import { cookies } from "next/headers";
 import { v4 as uuidv4 } from "uuid";
 import { supabaseAdmin } from "./supabase";
-import { FAIR_USE_DAILY_CAP, monthlyQuotaFor } from "./stripe";
+import { LIMITS } from "./stripe";
+import type { CurrentUser } from "./auth";
 
 const VISITOR_COOKIE = "iw_visitor";
-const FREE_LIMIT_PER_DAY = 1; // one free Daily Rune reading per 24h
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * Gets (or creates) the visitor id for the current request, and ensures a
- * matching row exists in Supabase. The cookie is httpOnly and long-lived so
- * a page refresh cannot reset the free limit — enforcement below is always
- * re-checked against the database, never trusted from the client.
+ * Gets (or creates) the visitor id for the current request (a long-lived
+ * httpOnly cookie) and makes sure the matching row exists in Supabase.
+ * Limits are always re-checked against the database, so a page refresh
+ * cannot reset them.
  */
 export async function getOrCreateVisitorId(): Promise<string> {
   const store = cookies();
   const existing = store.get(VISITOR_COOKIE)?.value;
+  const db = supabaseAdmin();
 
-  if (existing) {
+  if (existing && UUID_RE.test(existing)) {
+    // An old cookie (e.g. from before the database moved) would otherwise
+    // make every later write fail with a foreign-key error.
+    const { error } = await db.from("visitors").upsert({ id: existing }, { onConflict: "id", ignoreDuplicates: true });
+    if (error) console.error("getOrCreateVisitorId: visitor upsert failed:", error.message);
     return existing;
   }
 
   const id = uuidv4();
-  const db = supabaseAdmin();
-  await db.from("visitors").insert({ id }).select().single();
+  const { error } = await db.from("visitors").insert({ id });
+  if (error) console.error("getOrCreateVisitorId: visitor insert failed:", error.message);
 
-  store.set(VISITOR_COOKIE, id, {
-    httpOnly: true,
-    secure: true,
-    sameSite: "lax",
-    maxAge: 60 * 60 * 24 * 365, // 1 year
-    path: "/",
-  });
-
+  store.set(VISITOR_COOKIE, id, { httpOnly: true, secure: true, sameSite: "lax", maxAge: 60 * 60 * 24 * 365, path: "/" });
   return id;
 }
 
-export type EntitlementCheck =
-  | { allowed: true; reason: "free_daily" | "extra_purchased" | "subscription" | "day_pass" }
-  | { allowed: false; reason: "limit_reached"; suggestUpsell: true }
-  | { allowed: false; reason: "fair_use_cap"; suggestUpsell: false }
-  | { allowed: false; reason: "monthly_quota"; suggestUpsell: true; plan: string | null }
-  | { allowed: false; reason: "service_unavailable"; suggestUpsell: false };
+// ── Access ────────────────────────────────────────────────────────────────
+
+interface EntitlementRow {
+  visitor_id: string;
+  user_id: string | null;
+  status: string;
+  plan: string | null;
+  billing_interval: string | null;
+  current_period_start: string | null;
+  current_period_end: string | null;
+}
+
+export interface Access {
+  member: EntitlementRow | null; // active ICE WHISPERS+ membership
+  dayPass: EntitlementRow | null; // active 24h pass
+}
+
+const isCurrent = (e: EntitlementRow) => !e.current_period_end || new Date(e.current_period_end) > new Date();
+
+export async function getAccess(visitorId: string, user: CurrentUser | null): Promise<Access | null> {
+  const db = supabaseAdmin();
+  const filter = user ? `visitor_id.eq.${visitorId},user_id.eq.${user.id}` : `visitor_id.eq.${visitorId}`;
+  const { data, error } = await db
+    .from("entitlements")
+    .select("visitor_id, user_id, status, plan, billing_interval, current_period_start, current_period_end")
+    .or(filter);
+  if (error) {
+    console.error("getAccess: entitlements query failed:", error.message);
+    return null;
+  }
+  const rows = (data ?? []) as EntitlementRow[];
+  return {
+    member: rows.find((e) => e.status === "active" && isCurrent(e)) ?? null,
+    dayPass: rows.find((e) => e.status === "day_pass" && isCurrent(e)) ?? null,
+  };
+}
 
 /**
- * Server-side gate for every reading request. This is the ONLY place that
- * decides whether a reading is allowed — never trust a client-side counter.
- *
- * FAILS CLOSED: if the database itself is unreachable or misconfigured
- * (wrong SUPABASE_URL/key, table missing, etc.), this returns "not
- * allowed" rather than silently granting a free reading. The alternative
- * — failing open — means a broken DB connection turns into unlimited free
- * AI calls for every visitor, which is a real cost risk, not just a
- * missing feature. Any DB error here is also logged so it's diagnosable
- * from Vercel's function logs instead of failing silently.
- *
- * SUBSCRIPTIONS: Seeker ($5.90/month) = 100 readings per billing period,
- * ICE WHISPERS+ ($9.90/month) = 500. Usage is counted from the readings
- * table since entitlements.current_period_start, so it resets automatically
- * when Stripe renews the subscription.
- *
- * FAIR USE CAP: every paid option (day pass and subscriptions) is also
- * capped at FAIR_USE_DAILY_CAP readings per calendar day, tracked via
- * usage_daily.readings_today, so a script can never turn a purchase into
- * unbounded AI cost. See lib/stripe.ts.
+ * Start of the current monthly window. Yearly members get a fresh pool of
+ * readings every month too, counted from the day they subscribed.
  */
-export async function checkAndConsumeEntitlement(visitorId: string): Promise<EntitlementCheck> {
+export function monthWindowStart(anchorIso: string | null, now = new Date()): Date {
+  const anchor = anchorIso ? new Date(anchorIso) : new Date(now.getTime() - 30 * 24 * 3600 * 1000);
+  let months = (now.getUTCFullYear() - anchor.getUTCFullYear()) * 12 + (now.getUTCMonth() - anchor.getUTCMonth());
+  const at = (m: number) => {
+    const d = new Date(anchor);
+    d.setUTCMonth(anchor.getUTCMonth() + m);
+    return d;
+  };
+  let start = at(months);
+  while (start > now && months > 0) start = at(--months);
+  return start;
+}
+
+async function countReadings(opts: { userId?: string; visitorId?: string; since: Date }): Promise<number | null> {
   const db = supabaseAdmin();
+  let q = db.from("readings").select("id", { count: "exact", head: true }).gte("created_at", opts.since.toISOString());
+  q = opts.userId ? q.eq("user_id", opts.userId) : q.eq("visitor_id", opts.visitorId!);
+  const { count, error } = await q;
+  if (error) {
+    console.error("countReadings failed:", error.message);
+    return null;
+  }
+  return count ?? 0;
+}
 
-  // 1. Look up any entitlement (subscription or day pass) first.
-  const { data: ent, error: entError } = await db
-    .from("entitlements")
-    .select("status, plan, current_period_start, current_period_end")
-    .eq("visitor_id", visitorId)
-    .maybeSingle();
+export type EntitlementCheck =
+  | { allowed: true; reason: "free_daily" | "day_pass" | "member"; remaining?: number }
+  | { allowed: false; reason: "limit_reached" | "day_pass_used" | "monthly_quota" | "locked_spread"; suggestUpsell: true }
+  | { allowed: false; reason: "fair_use_cap" | "service_unavailable"; suggestUpsell: false };
 
-  if (entError) {
-    console.error("checkAndConsumeEntitlement: entitlements query failed, failing closed:", entError.message);
-    return { allowed: false, reason: "service_unavailable", suggestUpsell: false };
+/**
+ * The ONLY place that decides whether a reading may start. Server-side,
+ * fails closed (a broken database never turns into free AI calls).
+ *
+ *  - Free: one Daily Rune per UTC day.
+ *  - Unlock 24 hours ($1): up to LIMITS.dayPassReadings single-rune readings.
+ *  - ICE WHISPERS+: all spreads, a pool of LIMITS.memberReadingsPerMonth
+ *    readings per month — unused readings stay available all month.
+ *  - Everyone: LIMITS.burstPerHour per hour (stops bots, never people).
+ */
+export async function checkAndConsumeEntitlement(
+  visitorId: string,
+  user: CurrentUser | null,
+  spread: "daily" | "three_norns" | "five_cross"
+): Promise<EntitlementCheck> {
+  const fail = { allowed: false as const, reason: "service_unavailable" as const, suggestUpsell: false as const };
+  const access = await getAccess(visitorId, user);
+  if (!access) return fail;
+
+  const lastHour = await countReadings({
+    userId: user?.id,
+    visitorId,
+    since: new Date(Date.now() - 3600 * 1000),
+  });
+  if (lastHour === null) return fail;
+  if (lastHour >= LIMITS.burstPerHour) return { allowed: false, reason: "fair_use_cap", suggestUpsell: false };
+
+  // ICE WHISPERS+ member
+  if (access.member) {
+    const since = monthWindowStart(access.member.current_period_start);
+    const used = await countReadings({ userId: access.member.user_id ?? undefined, visitorId: access.member.visitor_id, since });
+    if (used === null) return fail;
+    if (used >= LIMITS.memberReadingsPerMonth) return { allowed: false, reason: "monthly_quota", suggestUpsell: true };
+    return { allowed: true, reason: "member", remaining: LIMITS.memberReadingsPerMonth - used - 1 };
   }
 
-  const hasUnlimitedGrant =
-    (ent?.status === "active" || ent?.status === "day_pass") &&
-    (!ent.current_period_end || new Date(ent.current_period_end) > new Date());
+  // Everything below is single-rune only.
+  if (spread !== "daily") return { allowed: false, reason: "locked_spread", suggestUpsell: true };
 
-  // Subscriptions have a monthly reading quota (day pass does not).
-  if (hasUnlimitedGrant && ent!.status === "active") {
-    const periodStart = ent!.current_period_start
-      ? new Date(ent!.current_period_start)
-      : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const { count, error: countError } = await db
-      .from("readings")
-      .select("id", { count: "exact", head: true })
-      .eq("visitor_id", visitorId)
-      .gte("created_at", periodStart.toISOString());
-    if (countError) {
-      console.error("checkAndConsumeEntitlement: monthly count failed, failing closed:", countError.message);
-      return { allowed: false, reason: "service_unavailable", suggestUpsell: false };
-    }
-    if ((count ?? 0) >= monthlyQuotaFor(ent!.plan)) {
-      return { allowed: false, reason: "monthly_quota", suggestUpsell: true, plan: ent!.plan ?? null };
-    }
-  }
-
-  // 2. Today's usage row (create if missing).
+  const db = supabaseAdmin();
   const today = new Date().toISOString().slice(0, 10);
   const { data: usage, error: usageError } = await db
     .from("usage_daily")
-    .select("*")
+    .select("free_reading_used")
     .eq("visitor_id", visitorId)
     .eq("usage_date", today)
     .maybeSingle();
-
   if (usageError) {
-    console.error("checkAndConsumeEntitlement: usage_daily query failed, failing closed:", usageError.message);
-    return { allowed: false, reason: "service_unavailable", suggestUpsell: false };
+    console.error("checkAndConsumeEntitlement: usage_daily query failed:", usageError.message);
+    return fail;
   }
 
-  if (!usage) {
-    // No row yet today — safe to create one. If they have an unlimited
-    // grant, this first reading of the day counts toward the fair-use cap;
-    // otherwise it's their free daily reading.
-    const { error: insertError } = await db.from("usage_daily").insert({
-      visitor_id: visitorId,
-      usage_date: today,
-      free_reading_used: !hasUnlimitedGrant,
-      readings_today: 1,
-    });
-    if (insertError) {
-      console.error("checkAndConsumeEntitlement: usage_daily insert failed, failing closed:", insertError.message);
-      return { allowed: false, reason: "service_unavailable", suggestUpsell: false };
-    }
-    return { allowed: true, reason: hasUnlimitedGrant ? (ent!.status === "day_pass" ? "day_pass" : "subscription") : "free_daily" };
-  }
-
-  if (hasUnlimitedGrant) {
-    if (usage.readings_today >= FAIR_USE_DAILY_CAP) {
-      // They already paid — don't upsell, just ask them to wait for the
-      // next day. This should be vanishingly rare for a real person.
-      return { allowed: false, reason: "fair_use_cap", suggestUpsell: false };
-    }
-    const { error: updateError } = await db
+  // The free Daily Rune comes first, even for day-pass holders.
+  if (!usage?.free_reading_used) {
+    const { error } = await db
       .from("usage_daily")
-      .update({ readings_today: usage.readings_today + 1 })
-      .eq("visitor_id", visitorId)
-      .eq("usage_date", today);
-    if (updateError) {
-      console.error("checkAndConsumeEntitlement: readings_today update failed, failing closed:", updateError.message);
-      return { allowed: false, reason: "service_unavailable", suggestUpsell: false };
+      .upsert({ visitor_id: visitorId, usage_date: today, free_reading_used: true }, { onConflict: "visitor_id,usage_date" });
+    if (error) {
+      console.error("checkAndConsumeEntitlement: usage_daily upsert failed:", error.message);
+      return fail;
     }
-    return { allowed: true, reason: ent!.status === "day_pass" ? "day_pass" : "subscription" };
-  }
-
-  if (!usage.free_reading_used) {
-    await db
-      .from("usage_daily")
-      .update({ free_reading_used: true, readings_today: usage.readings_today + 1 })
-      .eq("visitor_id", visitorId)
-      .eq("usage_date", today);
     return { allowed: true, reason: "free_daily" };
   }
 
-  if (usage.extra_readings_used < usage.extra_readings_purchased) {
-    await db
-      .from("usage_daily")
-      .update({ extra_readings_used: usage.extra_readings_used + 1, readings_today: usage.readings_today + 1 })
-      .eq("visitor_id", visitorId)
-      .eq("usage_date", today);
-    return { allowed: true, reason: "extra_purchased" };
+  if (access.dayPass) {
+    const since = new Date(access.dayPass.current_period_start ?? Date.now() - 24 * 3600 * 1000);
+    const used = await countReadings({ visitorId: access.dayPass.visitor_id, since });
+    if (used === null) return fail;
+    if (used >= LIMITS.dayPassReadings) return { allowed: false, reason: "day_pass_used", suggestUpsell: true };
+    return { allowed: true, reason: "day_pass", remaining: LIMITS.dayPassReadings - used - 1 };
   }
 
   return { allowed: false, reason: "limit_reached", suggestUpsell: true };
 }
-
-export { FREE_LIMIT_PER_DAY };
-

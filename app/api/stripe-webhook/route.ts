@@ -31,42 +31,46 @@ export async function POST(req: NextRequest) {
       const session = event.data.object as any;
       const visitorId = session.metadata?.visitor_id ?? session.client_reference_id;
       const product = session.metadata?.product;
+      const userId = session.metadata?.user_id || null;
 
       if (!visitorId) break;
 
       if (product === "dayPass") {
-        // 24h of readings (daily fair-use cap still applies, lib/session.ts).
-        const expires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+        const now = Date.now();
         const { error } = await db.from("entitlements").upsert({
           visitor_id: visitorId,
+          user_id: userId,
           stripe_customer_id: session.customer,
           status: "day_pass",
           plan: null,
-          current_period_start: new Date().toISOString(),
-          current_period_end: expires,
+          billing_interval: null,
+          current_period_start: new Date(now).toISOString(),
+          current_period_end: new Date(now + 24 * 60 * 60 * 1000).toISOString(),
           updated_at: new Date().toISOString(),
         });
         if (error) console.error("webhook: day pass upsert failed:", error.message);
-      } else if (product === "seeker" || product === "plus" || product === "subscription") {
-        // "subscription" = legacy checkouts from before the Seeker/Plus split.
-        const plan = product === "plus" ? "plus" : "seeker";
+      } else if (session.mode === "subscription") {
         let periodStart: string | null = new Date().toISOString();
         let periodEnd: string | null = null;
+        let interval: string | null = product === "plusYearly" ? "year" : "month";
         if (session.subscription) {
           try {
             const sub = (await stripe.subscriptions.retrieve(session.subscription)) as any;
             periodStart = iso(sub.current_period_start) ?? periodStart;
             periodEnd = iso(sub.current_period_end);
+            interval = sub.items?.data?.[0]?.price?.recurring?.interval ?? interval;
           } catch (err: any) {
             console.error("webhook: could not read subscription period:", err.message);
           }
         }
         const { error } = await db.from("entitlements").upsert({
           visitor_id: visitorId,
+          user_id: userId,
           stripe_customer_id: session.customer,
           stripe_subscription_id: session.subscription,
           status: "active",
-          plan,
+          plan: "plus",
+          billing_interval: interval,
           current_period_start: periodStart,
           current_period_end: periodEnd,
           updated_at: new Date().toISOString(),
@@ -78,8 +82,6 @@ export async function POST(req: NextRequest) {
 
     case "customer.subscription.updated":
     case "customer.subscription.deleted": {
-      // Renewals move current_period_start forward, which automatically
-      // resets the monthly reading count (lib/session.ts).
       const sub = event.data.object as any;
       const status =
         event.type === "customer.subscription.deleted"
@@ -87,14 +89,16 @@ export async function POST(req: NextRequest) {
           : sub.status === "active" || sub.status === "trialing"
           ? "active"
           : sub.status;
-      const update: Record<string, unknown> = {
-        status,
-        current_period_start: iso(sub.current_period_start),
-        current_period_end: iso(sub.current_period_end),
-        updated_at: new Date().toISOString(),
-      };
-      if (sub.metadata?.plan === "seeker" || sub.metadata?.plan === "plus") update.plan = sub.metadata.plan;
-      const { error } = await db.from("entitlements").update(update).eq("stripe_subscription_id", sub.id);
+      const { error } = await db
+        .from("entitlements")
+        .update({
+          status,
+          current_period_start: iso(sub.current_period_start),
+          current_period_end: iso(sub.current_period_end),
+          billing_interval: sub.items?.data?.[0]?.price?.recurring?.interval ?? undefined,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("stripe_subscription_id", sub.id);
       if (error) console.error("webhook: subscription update failed:", error.message);
       break;
     }

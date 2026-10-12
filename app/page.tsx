@@ -9,7 +9,11 @@ import ReadingResult from "@/components/ReadingResult";
 import WaitlistPrompt from "@/components/WaitlistPrompt";
 import UpsellPrompt from "@/components/UpsellPrompt";
 import SafetyNotice from "@/components/SafetyNotice";
-import { Reading, DrawnCard, SpreadType } from "@/lib/ai";
+import FollowUp from "@/components/FollowUp";
+import SaveToJournal from "@/components/SaveToJournal";
+import TopNav from "@/components/TopNav";
+import type { UpsellReason } from "@/components/UpsellPrompt";
+import { Reading, DrawnCard, SpreadType, DEFAULT_LABELS } from "@/lib/ai";
 import type { SafetyMessage } from "@/lib/safety";
 import { HERO_BG } from "@/lib/rune-assets";
 
@@ -26,13 +30,23 @@ export default function Home() {
   const [isPlus, setIsPlus] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [safetyMessage, setSafetyMessage] = useState<SafetyMessage | null>(null);
-  const [upsellReason, setUpsellReason] = useState<"limit_reached" | "monthly_quota" | "locked_spread">("limit_reached");
+  const [upsellReason, setUpsellReason] = useState<UpsellReason>("limit_reached");
+  const [signedIn, setSignedIn] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/entitlement")
       .then((res) => res.json())
-      .then((data) => setIsPlus(Boolean(data.isPlus)))
+      .then((data) => {
+        setIsPlus(Boolean(data.isPlus));
+        setSignedIn(Boolean(data.user));
+      })
       .catch(() => {});
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("checkout") === "success") {
+      setNotice("Thank you — your purchase is active. Ask the runes.");
+      history.replaceState(null, "", "/");
+    }
   }, []);
 
   function showCare(message: SafetyMessage) {
@@ -56,7 +70,8 @@ export default function Home() {
 
     if (res.status === 402) {
       const body = await res.json().catch(() => ({}));
-      setUpsellReason(body.error === "monthly_quota" || body.error === "locked_spread" ? body.error : "limit_reached");
+      const reasons: UpsellReason[] = ["limit_reached", "day_pass_used", "monthly_quota", "locked_spread"];
+      setUpsellReason(reasons.includes(body.error) ? body.error : "limit_reached");
       setStage("locked");
       return;
     }
@@ -114,9 +129,9 @@ export default function Home() {
     }
   }
 
-  function reset() {
+  function reset(nextQuestion = "") {
     setStage("ask");
-    setQuestion("");
+    setQuestion(nextQuestion);
     setCards([]);
     setRevealedCount(0);
     setShowSummary(false);
@@ -131,11 +146,17 @@ export default function Home() {
         <div className="absolute inset-0 bg-void/40" />
       </div>
       <IceField />
+      <div className="absolute top-0 inset-x-0 z-20">
+        <TopNav signedIn={signedIn} isPlus={isPlus} />
+      </div>
 
       <div className="relative z-10 w-full flex flex-col items-center gap-14">
         {stage === "ask" && (
           <>
+            {notice && <p className="text-frost-300 text-sm text-center -mb-6">{notice}</p>}
             <QuestionForm
+              key={question}
+              initialQuestion={question}
               onSubmit={handleAsk}
               isPlus={isPlus}
               onLockedSpreadSelect={() => {
@@ -152,7 +173,7 @@ export default function Home() {
         {stage === "locked" && (
           <>
             <UpsellPrompt reason={upsellReason} />
-            <button onClick={reset} className="text-parchment/40 text-sm underline underline-offset-4">
+            <button onClick={() => reset()} className="text-parchment/40 text-sm underline underline-offset-4">
               Back
             </button>
           </>
@@ -161,7 +182,7 @@ export default function Home() {
         {stage === "care" && safetyMessage && (
           <>
             <SafetyNotice message={safetyMessage} />
-            <button onClick={reset} className="text-parchment/40 text-sm underline underline-offset-4">
+            <button onClick={() => reset()} className="text-parchment/40 text-sm underline underline-offset-4">
               Back
             </button>
           </>
@@ -224,10 +245,17 @@ export default function Home() {
             {showSummary && reading && (
               <div onClick={(e) => e.stopPropagation()} className="flex flex-col items-center gap-10 w-full">
                 <ReadingResult reading={reading} />
+                <FollowUp
+                  heading={reading.labels?.moreQuestions ?? DEFAULT_LABELS.moreQuestions}
+                  placeholder={reading.labels?.askNext ?? DEFAULT_LABELS.askNext}
+                  suggestions={reading.suggestions ?? []}
+                  onAsk={(q) => {
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                    handleAsk(q, spread);
+                  }}
+                />
+                <SaveToJournal readingId={(reading as Reading & { id?: string }).id ?? null} isPlus={isPlus} />
                 <WaitlistPrompt />
-                <button onClick={reset} className="text-parchment/40 text-sm underline underline-offset-4">
-                  Ask another question
-                </button>
               </div>
             )}
           </div>
