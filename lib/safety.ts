@@ -127,11 +127,14 @@ export async function checkQuestionSafety(question: string): Promise<SafetyResul
  * read as encouraging violence, self-harm or crime. Used as a last line of
  * defence in lib/ai.ts — such a reading is never shown.
  */
+// Narrow on purpose: everyday words like "weapon" ("your experience is your
+// strongest weapon") or "hurt" must not throw away a good reading.
 const UNSAFE_OUTPUT = [
-  /\b(kill|shoot|stab|poison|murder|attack|hurt|beat)\s+(him|her|them|someone|yourself)\b/i,
-  /\b(döda|skjut|skjuta|knivhugg|förgifta|mörda|slå)\s+(honom|henne|dem|någon|dig\s+själv)\b/i,
+  /\b(kill|shoot|stab|poison|murder)\s+(him|her|them|someone|yourself|your)\b/i,
+  /\b(döda|skjut|skjuta|knivhugg|förgifta|mörda|slå\s+ihjäl)\s+(honom|henne|dem|någon|dig\s+själv)\b/i,
   /\b(take|end)\s+your\s+(own\s+)?life\b/i, /\bta\s+livet\s+av\s+dig\b/i,
-  /\b(revenge|hämnas|hämnd)\b/i, /\b(weapon|vapen|gun|pistol|kniv|knife)\b/i,
+  /\b(take|get|seek)\s+(your\s+)?revenge\b/i, /\b(hämnas\s+på|ta\s+hämnd)\b/i,
+  /\b(get|buy|use|bring|grab)\s+(a\s+)?(gun|knife|weapon)\b/i, /\b(skaffa|köp|använd|ta\s+med)\s+(ett\s+|en\s+)?(vapen|kniv|pistol)\b/i,
 ];
 
 const UNSAFE_OUTPUT_U = uni(UNSAFE_OUTPUT);

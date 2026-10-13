@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { stripeClient, PRICING, ProductId } from "@/lib/stripe";
-import { getOrCreateVisitorId } from "@/lib/session";
+import { stripeClient, PRICING, ProductId, DAYPASS_CREDIT_COUPON } from "@/lib/stripe";
+import { getOrCreateVisitorId, getAccess } from "@/lib/session";
 import { getCurrentUser } from "@/lib/auth";
 
 export const runtime = "nodejs"; // Stripe SDK needs the Node runtime, not edge
@@ -28,6 +28,11 @@ export async function POST(req: NextRequest) {
   if (product !== "dayPass" && !user) {
     return NextResponse.json({ error: "signin_required" }, { status: 401 });
   }
+
+  // Bought "Unlock 24 hours" in the last 24 hours? Credit that $1 toward
+  // the first membership payment.
+  const access = product !== "dayPass" ? await getAccess(visitorId, user) : null;
+  const dayPassCredit = Boolean(access?.dayPass);
 
   const stripe = stripeClient();
   const origin = req.headers.get("origin") ?? process.env.PUBLIC_SITE_URL ?? "http://localhost:3000";
@@ -76,9 +81,9 @@ export async function POST(req: NextRequest) {
               quantity: 1,
             },
           ],
-          // Codes (e.g. a 100% VIP test code) are created in Stripe →
-          // Product catalog → Coupons → Promotion codes.
-          allow_promotion_codes: true,
+          // Stripe allows either an automatic discount or promotion codes.
+          // Codes (e.g. the VIP test code) are created in Stripe → Coupons.
+          ...(dayPassCredit ? { discounts: [{ coupon: DAYPASS_CREDIT_COUPON }] } : { allow_promotion_codes: true }),
           // No card needed when a code makes it free.
           payment_method_collection: "if_required",
           success_url: `${origin}/?checkout=success`,

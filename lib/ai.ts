@@ -224,21 +224,23 @@ export async function generateReading(question: string, cards: DrawnCard[], spre
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return generateMock(question, cards, spread);
 
-  try {
-    const reading = await generateWithProvider(apiKey, question, cards, spread);
-    // Last line of defence: never show a reading whose wording could be
-    // read as encouraging violence, self-harm or crime.
-    const allText = [reading.answer, reading.cardMeaning, reading.interpretation, reading.whisper,
-      ...(reading.cardReadings ?? []).map((c) => c.text), ...(reading.suggestions ?? [])].join(" ");
-    if (isUnsafeOutput(allText)) {
-      console.warn("AI reading failed output safety check — using safe fallback");
-      return generateMock(question, cards, spread);
+  // Two attempts before the (English, rule-based) fallback, so a single
+  // hiccup never turns a Swedish question into an English answer.
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const reading = await generateWithProvider(apiKey, question, cards, spread);
+      // Last line of defence: never show a reading whose wording could be
+      // read as encouraging violence, self-harm or crime.
+      const allText = [reading.answer, reading.cardMeaning, reading.interpretation, reading.whisper,
+        ...(reading.cardReadings ?? []).map((c) => c.text), ...(reading.suggestions ?? [])].join(" ");
+      if (!isUnsafeOutput(allText)) return reading;
+      console.warn(`AI reading failed output safety check (attempt ${attempt})`);
+    } catch (err) {
+      console.error(`generateWithProvider failed (attempt ${attempt}):`, err);
     }
-    return reading;
-  } catch (err) {
-    console.error("generateWithProvider failed, falling back to mock:", err);
-    return generateMock(question, cards, spread);
   }
+  console.error("AI reading unavailable after 2 attempts — using rule-based fallback");
+  return generateMock(question, cards, spread);
 }
 
 const SYSTEM_PROMPT = `You are the voice of ICE WHISPERS, a Nordic Elder Futhark rune oracle.
@@ -305,7 +307,7 @@ async function generateWithProvider(apiKey: string, question: string, cards: Dra
   "interpretation": "3–5 sentences, as instructed.",
   "whisper": "1–2 sentences of concrete advice.",
   "labels": {"answer": "'Your Answer' translated", "card": "'The Card' translated", "reading": "'Your Reading' translated", "whisper": "'The Whisper' translated", "reversed": "'reversed' translated", "disclaimer": "this exact sentence translated: For entertainment and reflection only. You always make your own decisions — whatever the runes or this reading say.", "moreQuestions": "'Have more questions?' translated", "askNext": "'Ask your next question…' translated"},
-  "suggestions": ["1 to 3 short follow-up questions the person might naturally ask next, written in first person as THEY would ask the runes, building on their question and this reading (e.g. 'What should I focus on before the interview?'). Never about self-harm, violence or crime."]
+  "suggestions": ["Exactly 3 short follow-up questions, in the question's language, written in first person as the person would ask the runes. #1 and #2 go deeper into THEIR situation — what people in this situation typically wonder next (timing, what to do, what holds them back, the other person's side, how it will feel), using their concrete details. #3 gently opens a related life area they did not ask about but often connects (e.g. after a love question: money or home; after a work question: wellbeing or relationships; after a money question: work) — phrased as a real question to the runes. Never about self-harm, violence or crime."]
 }`
     : `{
   "language": "ISO code, e.g. sv",
@@ -314,7 +316,7 @@ async function generateWithProvider(apiKey: string, question: string, cards: Dra
   "interpretation": "4–6 sentences synthesising all cards into one answer, as instructed.",
   "whisper": "1–2 sentences of concrete advice.",
   "labels": {"answer": "'Your Answer' translated", "card": "'The Card' translated", "reading": "'Your Reading' translated", "whisper": "'The Whisper' translated", "reversed": "'reversed' translated", "disclaimer": "this exact sentence translated: For entertainment and reflection only. You always make your own decisions — whatever the runes or this reading say.", "moreQuestions": "'Have more questions?' translated", "askNext": "'Ask your next question…' translated"},
-  "suggestions": ["1 to 3 short follow-up questions the person might naturally ask next, written in first person as THEY would ask the runes, building on their question and this reading (e.g. 'What should I focus on before the interview?'). Never about self-harm, violence or crime."]
+  "suggestions": ["Exactly 3 short follow-up questions, in the question's language, written in first person as the person would ask the runes. #1 and #2 go deeper into THEIR situation — what people in this situation typically wonder next (timing, what to do, what holds them back, the other person's side, how it will feel), using their concrete details. #3 gently opens a related life area they did not ask about but often connects (e.g. after a love question: money or home; after a work question: wellbeing or relationships; after a money question: work) — phrased as a real question to the runes. Never about self-harm, violence or crime."]
 }
 "cards" must have exactly ${cards.length} entries, in the same order as the cards drawn.`;
 
@@ -329,7 +331,7 @@ async function generateWithProvider(apiKey: string, question: string, cards: Dra
     shape,
   ].join("\n");
 
-  const text = await callModel(apiKey, SYSTEM_PROMPT, userPrompt, isSingle ? 1200 : 1800);
+  const text = await callModel(apiKey, SYSTEM_PROMPT, userPrompt, isSingle ? 1800 : 2600);
   const parsed = parseJson(text);
 
   if (typeof parsed.interpretation !== "string" || typeof parsed.whisper !== "string") {

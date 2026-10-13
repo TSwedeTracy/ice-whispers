@@ -12,6 +12,7 @@ import SafetyNotice from "@/components/SafetyNotice";
 import FollowUp from "@/components/FollowUp";
 import SaveToJournal from "@/components/SaveToJournal";
 import TopNav from "@/components/TopNav";
+import UpgradeNudge from "@/components/UpgradeNudge";
 import type { UpsellReason } from "@/components/UpsellPrompt";
 import { Reading, DrawnCard, SpreadType, DEFAULT_LABELS } from "@/lib/ai";
 import type { SafetyMessage } from "@/lib/safety";
@@ -28,6 +29,9 @@ export default function Home() {
   const [showSummary, setShowSummary] = useState(false);
   const [reading, setReading] = useState<Reading | null>(null);
   const [isPlus, setIsPlus] = useState(false);
+  const [spreadsUnlocked, setSpreadsUnlocked] = useState(false);
+  const [hasDayPass, setHasDayPass] = useState(false);
+  const [interval, setIntervalName] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [safetyMessage, setSafetyMessage] = useState<SafetyMessage | null>(null);
   const [upsellReason, setUpsellReason] = useState<UpsellReason>("limit_reached");
@@ -39,9 +43,22 @@ export default function Home() {
       .then((res) => res.json())
       .then((data) => {
         setIsPlus(Boolean(data.isPlus));
+        setSpreadsUnlocked(Boolean(data.spreadsUnlocked));
+        setHasDayPass(Boolean(data.hasDayPass));
+        setIntervalName(data.interval ?? null);
         setSignedIn(Boolean(data.user));
       })
       .catch(() => {});
+    // A question asked just before hitting the paywall is kept, so it's
+    // waiting in the box after checkout (or when coming back).
+    try {
+      const pending = JSON.parse(sessionStorage.getItem("iw_pending") ?? "null");
+      if (pending?.q) {
+        setQuestion(pending.q);
+        setSpread(pending.s ?? "daily");
+        sessionStorage.removeItem("iw_pending");
+      }
+    } catch {}
     const params = new URLSearchParams(window.location.search);
     if (params.get("checkout") === "success") {
       setNotice("Thank you — your purchase is active. Ask the runes.");
@@ -72,6 +89,9 @@ export default function Home() {
       const body = await res.json().catch(() => ({}));
       const reasons: UpsellReason[] = ["limit_reached", "day_pass_used", "monthly_quota", "locked_spread"];
       setUpsellReason(reasons.includes(body.error) ? body.error : "limit_reached");
+      try {
+        sessionStorage.setItem("iw_pending", JSON.stringify({ q, s }));
+      } catch {}
       setStage("locked");
       return;
     }
@@ -147,7 +167,14 @@ export default function Home() {
       </div>
       <IceField />
       <div className="absolute top-0 inset-x-0 z-20">
-        <TopNav signedIn={signedIn} isPlus={isPlus} />
+        <TopNav
+          signedIn={signedIn}
+          isPlus={isPlus}
+          onUpgrade={() => {
+            setUpsellReason("upgrade");
+            setStage("locked");
+          }}
+        />
       </div>
 
       <div className="relative z-10 w-full flex flex-col items-center gap-14">
@@ -157,8 +184,9 @@ export default function Home() {
             <QuestionForm
               key={question}
               initialQuestion={question}
+              initialSpread={spreadsUnlocked ? spread : "daily"}
               onSubmit={handleAsk}
-              isPlus={isPlus}
+              isPlus={spreadsUnlocked}
               onLockedSpreadSelect={() => {
                 setUpsellReason("locked_spread");
                 setStage("locked");
@@ -173,7 +201,7 @@ export default function Home() {
         {stage === "locked" && (
           <>
             <UpsellPrompt reason={upsellReason} />
-            <button onClick={() => reset()} className="text-parchment/40 text-sm underline underline-offset-4">
+            <button onClick={() => reset(question)} className="text-parchment/40 text-sm underline underline-offset-4">
               Back
             </button>
           </>
@@ -253,6 +281,17 @@ export default function Home() {
                     window.scrollTo({ top: 0, behavior: "smooth" });
                     handleAsk(q, spread);
                   }}
+                />
+                <UpgradeNudge
+                  isPlus={isPlus}
+                  hasDayPass={hasDayPass}
+                  interval={interval}
+                  onOpenOptions={() => {
+                    setUpsellReason("upgrade");
+                    setStage("locked");
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                  }}
+                  onUpgraded={() => setIntervalName("year")}
                 />
                 <SaveToJournal readingId={(reading as Reading & { id?: string }).id ?? null} isPlus={isPlus} />
                 <WaitlistPrompt />

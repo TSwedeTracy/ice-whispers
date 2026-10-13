@@ -110,7 +110,7 @@ export type EntitlementCheck =
  * fails closed (a broken database never turns into free AI calls).
  *
  *  - Free: one Daily Rune per UTC day.
- *  - Unlock 24 hours ($1): up to LIMITS.dayPassReadings single-rune readings.
+ *  - Unlock 24 hours ($1): up to LIMITS.dayPassReadings readings, all spreads.
  *  - ICE WHISPERS+: all spreads, a pool of LIMITS.memberReadingsPerMonth
  *    readings per month — unused readings stay available all month.
  *  - Everyone: LIMITS.burstPerHour per hour (stops bots, never people).
@@ -141,8 +141,19 @@ export async function checkAndConsumeEntitlement(
     return { allowed: true, reason: "member", remaining: LIMITS.memberReadingsPerMonth - used - 1 };
   }
 
-  // Everything below is single-rune only.
-  if (spread !== "daily") return { allowed: false, reason: "locked_spread", suggestUpsell: true };
+  // "Unlock 24 hours" gives every spread (up to LIMITS.dayPassReadings).
+  const useDayPass = async (): Promise<EntitlementCheck> => {
+    const since = new Date(access.dayPass!.current_period_start ?? Date.now() - 24 * 3600 * 1000);
+    const used = await countReadings({ visitorId: access.dayPass!.visitor_id, since });
+    if (used === null) return fail;
+    if (used >= LIMITS.dayPassReadings) return { allowed: false, reason: "day_pass_used", suggestUpsell: true };
+    return { allowed: true, reason: "day_pass", remaining: LIMITS.dayPassReadings - used - 1 };
+  };
+
+  // Three Norns / Five Rune Cross: members (above) or an active 24-hour unlock.
+  if (spread !== "daily") {
+    return access.dayPass ? useDayPass() : { allowed: false, reason: "locked_spread", suggestUpsell: true };
+  }
 
   const db = supabaseAdmin();
   const today = new Date().toISOString().slice(0, 10);
@@ -169,13 +180,7 @@ export async function checkAndConsumeEntitlement(
     return { allowed: true, reason: "free_daily" };
   }
 
-  if (access.dayPass) {
-    const since = new Date(access.dayPass.current_period_start ?? Date.now() - 24 * 3600 * 1000);
-    const used = await countReadings({ visitorId: access.dayPass.visitor_id, since });
-    if (used === null) return fail;
-    if (used >= LIMITS.dayPassReadings) return { allowed: false, reason: "day_pass_used", suggestUpsell: true };
-    return { allowed: true, reason: "day_pass", remaining: LIMITS.dayPassReadings - used - 1 };
-  }
+  if (access.dayPass) return useDayPass();
 
   return { allowed: false, reason: "limit_reached", suggestUpsell: true };
 }

@@ -22,9 +22,11 @@ export async function GET() {
 
   return NextResponse.json({
     isPlus: Boolean(access?.member),
+    spreadsUnlocked: Boolean(access?.member || access?.dayPass), // Three Norns + Five Rune Cross
     interval: access?.member?.billing_interval ?? null,
     readingsLeft,
     hasDayPass: Boolean(access?.dayPass),
+    dayPassCredit: Boolean(access?.dayPass) && !access?.member, // $1 credited toward membership
     user: user ? { email: user.email } : null,
   });
 }

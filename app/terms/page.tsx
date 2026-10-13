@@ -36,7 +36,8 @@ export default function TermsPage() {
           <strong>Free:</strong> one Daily Rune reading per day.
         </li>
         <li>
-          <strong>Unlock 24 hours — $1 (one-time):</strong> up to 10 single-rune readings during 24 hours from purchase.
+          <strong>Unlock 24 hours — $1 (one-time):</strong> up to 10 readings in any spread (1, 3 or 5 runes) during 24
+          hours from purchase.
           No account needed. Unused readings expire after 24 hours.
         </li>
         <li>
@@ -44,6 +45,11 @@ export default function TermsPage() {
           with PDF download, and up to 300 readings per month (a monthly pool — unused readings stay available until the
           month ends; yearly members receive a new pool every month). Requires an account. A limit of 30 readings per hour
           applies to all users to prevent automated abuse.
+        </li>
+        <li>
+          <strong>Upgrade credit:</strong> if you join ICE WHISPERS+ while your 24-hour unlock is active, the $1 is
+          deducted from your first membership payment. Monthly members can switch to yearly for $87 (the $97 yearly
+          price minus a $10 credit for the month already paid); the yearly period starts on the day you switch.
         </li>
       </ul>
       <p>

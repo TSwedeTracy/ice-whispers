@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import AuthForm from "@/components/AuthForm";
 import UpsellPrompt from "@/components/UpsellPrompt";
+import UpgradeNudge from "@/components/UpgradeNudge";
 
 interface Status {
   isPlus: boolean;
@@ -55,8 +56,11 @@ export default function AccountPage() {
                 Open your journal
               </Link>
             </div>
+          ) : null}
+          {status.isPlus ? (
+            <UpgradeNudge isPlus hasDayPass={false} interval={status.interval} onOpenOptions={() => {}} onUpgraded={load} />
           ) : (
-            <UpsellPrompt reason="locked_spread" />
+            <UpsellPrompt reason="upgrade" />
           )}
           <button onClick={signOut} className="text-parchment/40 text-sm underline underline-offset-4">
             Sign out

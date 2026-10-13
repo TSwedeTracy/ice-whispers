@@ -15,14 +15,16 @@ export default function QuestionForm({
   isPlus,
   onLockedSpreadSelect,
   initialQuestion = "",
+  initialSpread = "daily",
 }: {
   onSubmit: (question: string, spread: "daily" | "three_norns" | "five_cross") => void;
   isPlus: boolean;
   onLockedSpreadSelect: () => void;
   initialQuestion?: string;
+  initialSpread?: "daily" | "three_norns" | "five_cross";
 }) {
   const [question, setQuestion] = useState(initialQuestion);
-  const [spread, setSpread] = useState<"daily" | "three_norns" | "five_cross">("daily");
+  const [spread, setSpread] = useState<"daily" | "three_norns" | "five_cross">(initialSpread);
 
   return (
     <div className="w-full max-w-xl mx-auto flex flex-col items-center gap-8 animate-fadeUp">

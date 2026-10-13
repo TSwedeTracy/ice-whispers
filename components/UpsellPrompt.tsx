@@ -1,21 +1,21 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import Link from "next/link";
 import SpreadPreview from "@/components/SpreadPreview";
 import AuthForm from "@/components/AuthForm";
-import Link from "next/link";
 
 type Product = "dayPass" | "plusMonthly" | "plusYearly";
-export type UpsellReason = "limit_reached" | "day_pass_used" | "monthly_quota" | "locked_spread";
+export type UpsellReason = "limit_reached" | "day_pass_used" | "monthly_quota" | "locked_spread" | "upgrade";
 
 const COPY: Record<UpsellReason, { title: string; subtitle: string }> = {
   limit_reached: {
     title: "The Runes Rest",
-    subtitle: "Come back tomorrow for another free reading — or keep asking the runes today.",
+    subtitle: "You've drawn today's free rune. Come back tomorrow — or keep asking the runes now.",
   },
   day_pass_used: {
     title: "Your 24 Hours Are Used",
-    subtitle: "You've drawn all readings in your 24-hour unlock. Come back tomorrow for a free reading — or go deeper below.",
+    subtitle: "You've drawn all readings in your 24-hour unlock. Go deeper with ICE WHISPERS+.",
   },
   monthly_quota: {
     title: "This Month's Readings Are Drawn",
@@ -23,20 +23,35 @@ const COPY: Record<UpsellReason, { title: string; subtitle: string }> = {
   },
   locked_spread: {
     title: "Three Norns & Five Rune Cross",
-    subtitle: "The deeper spreads are part of ICE WHISPERS+.",
+    subtitle: "Unlock 24 hours to try them — or keep them with ICE WHISPERS+.",
+  },
+  upgrade: {
+    title: "Choose Your Path",
+    subtitle: "Every option uses the same Nordic deck and readings that answer your exact question.",
   },
 };
 
 export default function UpsellPrompt({ reason = "limit_reached" }: { reason?: UpsellReason }) {
   const [loading, setLoading] = useState<Product | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [yearly, setYearly] = useState(true);
   const [needsAccount, setNeedsAccount] = useState<Product | null>(null);
   const [consent, setConsent] = useState(false);
+  const [credit, setCredit] = useState(false);
+  const [hasDayPass, setHasDayPass] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/entitlement")
+      .then((r) => r.json())
+      .then((d) => {
+        setCredit(Boolean(d.dayPassCredit));
+        setHasDayPass(Boolean(d.hasDayPass));
+      })
+      .catch(() => {});
+  }, []);
 
   async function checkout(product: Product) {
     if (!consent) {
-      setError("Please tick the box below to continue.");
+      setError("Please tick the box below the options to continue.");
       return;
     }
     setLoading(product);
@@ -60,9 +75,6 @@ export default function UpsellPrompt({ reason = "limit_reached" }: { reason?: Up
     setLoading(null);
   }
 
-  const copy = COPY[reason];
-  const plusProduct: Product = yearly ? "plusYearly" : "plusMonthly";
-
   if (needsAccount) {
     return (
       <div className="w-full max-w-md mx-auto text-center space-y-4 animate-fadeUp">
@@ -79,83 +91,124 @@ export default function UpsellPrompt({ reason = "limit_reached" }: { reason?: Up
     );
   }
 
+  const copy = COPY[reason];
+  const showDayPass = !hasDayPass && reason !== "monthly_quota";
+
+  const cols: {
+    id: Product;
+    name: string;
+    price: string;
+    per: string;
+    note?: string;
+    badge?: string;
+    features: string[];
+    cta: string;
+    style: string;
+  }[] = [
+    ...(showDayPass
+      ? [
+          {
+            id: "dayPass" as Product,
+            name: "24 Hours",
+            price: "$1",
+            per: "one time",
+            features: ["All spreads: 1, 3 & 5 runes", "Up to 10 readings in 24 h", "No account needed"],
+            cta: "Unlock",
+            style: "border-white/15",
+          },
+        ]
+      : []),
+    {
+      id: "plusMonthly",
+      name: "ICE WHISPERS+",
+      price: credit ? "$8.70" : "$9.70",
+      per: credit ? "first month, then $9.70/mo" : "per month",
+      note: credit ? "Your $1 is credited" : undefined,
+      features: ["All spreads: 1, 3 & 5 runes", "Private journal + PDF", "300 readings / month", "Switch to yearly for $87"],
+      cta: "Join monthly",
+      style: "border-frost-300/40",
+    },
+    {
+      id: "plusYearly",
+      name: "ICE WHISPERS+",
+      price: credit ? "$96" : "$97",
+      per: credit ? "first year, then $97/yr" : "per year",
+      note: credit ? "Your $1 is credited" : undefined,
+      badge: "2 months free",
+      features: ["All spreads: 1, 3 & 5 runes", "Private journal + PDF", "300 readings / month"],
+      cta: "Join yearly",
+      style: "border-wyrd-400/60 shadow-glowViolet",
+    },
+  ];
+
   return (
-    <div className="w-full max-w-md mx-auto text-center space-y-6 animate-fadeUp">
+    <div className="w-full max-w-3xl mx-auto text-center space-y-6 animate-fadeUp">
       <div className="space-y-1">
         <p className="font-display text-2xl text-frost-100 tracking-wide">{copy.title}</p>
-        <p className="text-parchment/60 text-sm">{copy.subtitle}</p>
+        <p className="text-parchment/60 text-sm max-w-md mx-auto">{copy.subtitle}</p>
       </div>
 
-      {reason !== "monthly_quota" && reason !== "locked_spread" && (
-        <div className="flex flex-col gap-3">
-          <button
-            onClick={() => checkout("dayPass")}
-            disabled={loading !== null}
-            className="w-full rounded-full bg-frost-500 text-void font-semibold py-3 hover:bg-frost-300 transition-colors disabled:opacity-60"
-          >
-            {loading === "dayPass" ? "Opening checkout…" : "Unlock 24 hours — $1"}
-          </button>
-          <p className="text-parchment/40 text-xs -mt-1">Up to 10 single-rune readings for the next 24 hours. No account needed.</p>
-          {!consent && <p className="text-parchment/35 text-[11px] -mt-1">Tick the box at the bottom to accept the terms first.</p>}
-        </div>
+      <div className={`grid gap-2 sm:gap-4 ${cols.length === 3 ? "grid-cols-3" : "grid-cols-2"}`}>
+        {cols.map((c) => (
+          <div key={c.id} className={`relative rounded-2xl border bg-white/[0.03] px-2 sm:px-4 pt-5 pb-3 flex flex-col ${c.style}`}>
+            {c.badge && (
+              <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-wyrd-600 px-2 py-0.5 text-[9px] sm:text-[10px] uppercase tracking-[0.15em] text-frost-100">
+                {c.badge}
+              </span>
+            )}
+            <p className="text-[10px] sm:text-xs uppercase tracking-[0.15em] text-frost-300/80 leading-tight min-h-[2.2em]">{c.name}</p>
+            <p className="font-display text-2xl sm:text-3xl text-frost-100 mt-1">{c.price}</p>
+            <p className="text-[10px] sm:text-xs text-parchment/50 leading-tight min-h-[2.4em]">{c.per}</p>
+            {c.note && <p className="text-[10px] text-frost-300 mt-0.5">{c.note}</p>}
+            <ul className="text-[11px] sm:text-sm text-parchment/80 text-left space-y-1.5 mt-3 flex-1">
+              {c.features.map((f) => (
+                <li key={f} className="leading-snug">
+                  <span className="text-frost-300">ᚱ</span> {f}
+                </li>
+              ))}
+            </ul>
+            <button
+              onClick={() => checkout(c.id)}
+              disabled={loading !== null}
+              className={`mt-3 w-full rounded-full py-2 text-xs sm:text-sm font-semibold transition-colors disabled:opacity-60 ${
+                c.id === "dayPass"
+                  ? "bg-frost-500 text-void hover:bg-frost-300"
+                  : "bg-gradient-to-r from-frost-700 via-frost-500 to-wyrd-600 text-frost-100"
+              }`}
+            >
+              {loading === c.id ? "…" : c.cta}
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {hasDayPass && reason !== "monthly_quota" && (
+        <p className="text-parchment/50 text-xs">You have an active 24-hour unlock — the $1 is credited if you join today.</p>
       )}
 
-      <div className="flex flex-col gap-3 pt-6 border-t border-white/10">
-        <div className="space-y-1">
-          <p className="font-display text-xl text-frost-100 tracking-wide">Want deeper readings?</p>
-          <p className="text-parchment/60 text-sm">
-            ICE WHISPERS+ opens every spread of the Nordic deck — and keeps your private rune journal.
-          </p>
+      <label className="flex gap-2 items-start text-left text-[12px] text-parchment/60 leading-snug cursor-pointer max-w-xl mx-auto">
+        <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} className="mt-0.5 accent-frost-500" />
+        <span>
+          I accept the{" "}
+          <Link href="/terms" target="_blank" className="underline underline-offset-2">
+            Terms
+          </Link>{" "}
+          and{" "}
+          <Link href="/privacy" target="_blank" className="underline underline-offset-2">
+            Privacy Policy
+          </Link>
+          , and ask for access to start right away. I understand that if I withdraw within 14 days I pay for the time used,
+          and that the 24-hour unlock can’t be withdrawn once its 24 hours are over.
+        </span>
+      </label>
+      {error && <p className="text-red-400/90 text-sm">{error}</p>}
+
+      <div className="pt-4 border-t border-white/10 space-y-3">
+        <p className="text-parchment/60 text-sm">The deeper spreads</p>
+        <div className="max-w-md mx-auto">
+          <SpreadPreview />
         </div>
-
-        <SpreadPreview />
-
-        <ul className="text-left text-sm text-parchment/75 space-y-1.5 mx-auto">
-          <li>ᚱ  Daily Rune, Three Norns and Five Rune Cross</li>
-          <li>ᚱ  Readings that answer your exact question, in your language</li>
-          <li>ᚱ  A private journal: save readings, add notes, note what happened — download as PDF</li>
-          <li>ᚱ  Up to 300 readings a month — what you don't use today stays yours all month</li>
-        </ul>
-
-        <div className="mx-auto flex rounded-full border border-white/15 p-1 text-sm mt-1">
-          <button
-            onClick={() => setYearly(false)}
-            className={`px-4 py-1.5 rounded-full transition-colors ${!yearly ? "bg-frost-500/20 text-frost-100" : "text-parchment/60"}`}
-          >
-            Monthly
-          </button>
-          <button
-            onClick={() => setYearly(true)}
-            className={`px-4 py-1.5 rounded-full transition-colors ${yearly ? "bg-frost-500/20 text-frost-100" : "text-parchment/60"}`}
-          >
-            Yearly · 2 months free
-          </button>
-        </div>
-
-        <button
-          onClick={() => checkout(plusProduct)}
-          disabled={loading !== null}
-          className="w-full rounded-full bg-gradient-to-r from-frost-700 via-frost-500 to-wyrd-600 text-frost-100 font-semibold py-3 shadow-glow hover:from-frost-500 hover:to-wyrd-400 transition-colors disabled:opacity-60"
-        >
-          {loading === plusProduct ? "Opening checkout…" : yearly ? "Join ICE WHISPERS+ — $97/year" : "Join ICE WHISPERS+ — $9.70/month"}
-        </button>
-        <label className="flex gap-2 items-start text-left text-[12px] text-parchment/60 leading-snug mt-1 cursor-pointer">
-          <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} className="mt-0.5 accent-frost-500" />
-          <span>
-            I accept the{" "}
-            <Link href="/terms" target="_blank" className="underline underline-offset-2">
-              Terms
-            </Link>{" "}
-            and{" "}
-            <Link href="/privacy" target="_blank" className="underline underline-offset-2">
-              Privacy Policy
-            </Link>
-            , and ask for access to start right away. I understand that if I withdraw within 14 days I pay for the time
-            used, and that the 24-hour unlock can’t be withdrawn once its 24 hours are over.
-          </span>
-        </label>
         <p className="text-parchment/30 text-[11px]">Cancel anytime. Prices include VAT. Secure payment by Stripe.</p>
-        {error && <p className="text-red-400/90 text-sm">{error}</p>}
       </div>
     </div>
   );

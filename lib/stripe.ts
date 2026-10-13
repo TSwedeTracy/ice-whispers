@@ -17,10 +17,18 @@ export function stripeClient(): Stripe {
 
 export const LIMITS = {
   freeReadingsPerDay: 1, // one free Daily Rune per day
-  dayPassReadings: 10, // "Unlock 24 hours" — single-rune readings
+  dayPassReadings: 10, // "Unlock 24 hours" — readings in any spread
   memberReadingsPerMonth: 300, // ICE WHISPERS+ — a monthly pool, unused readings last the whole month
   burstPerHour: 30, // anti-bot ceiling for everyone; no real person hits it
 };
+
+// Stripe coupon (created 2026-10-12): $1 off the first membership payment
+// for anyone who bought "Unlock 24 hours" within the last 24 hours.
+export const DAYPASS_CREDIT_COUPON = "DAYPASS_CREDIT_1USD";
+
+// Stripe coupon (created 2026-10-13): $10 off when a monthly member switches
+// to yearly — "upgrade for only $87".
+export const MONTH_TO_YEAR_COUPON = "MONTH_TO_YEAR_10USD";
 
 export type ProductId = "dayPass" | "plusMonthly" | "plusYearly";
 
@@ -29,7 +37,7 @@ export const PRICING = {
     label: "ICE WHISPERS — 24 hours",
     amountCents: 100,
     currency: "usd",
-    description: `Up to ${LIMITS.dayPassReadings} single-rune readings for the next 24 hours.`,
+    description: `All spreads, up to ${LIMITS.dayPassReadings} readings, for the next 24 hours.`,
   },
   plusMonthly: {
     label: "ICE WHISPERS+ (monthly)",
