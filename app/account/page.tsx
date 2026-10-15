@@ -11,11 +11,32 @@ interface Status {
   interval: string | null;
   readingsLeft: number | null;
   hasDayPass: boolean;
+  periodEnd: string | null;
+  cancelling: boolean;
   user: { email: string } | null;
 }
 
 export default function AccountPage() {
   const [status, setStatus] = useState<Status | null>(null);
+  const [opening, setOpening] = useState(false);
+  const [portalError, setPortalError] = useState<string | null>(null);
+
+  // Stripe's customer portal: cancel, change card, receipts.
+  async function manage() {
+    setOpening(true);
+    setPortalError(null);
+    const res = await fetch("/api/portal", { method: "POST" }).catch(() => null);
+    const data = await res?.json().catch(() => ({}));
+    if (data?.url) {
+      window.location.href = data.url;
+      return;
+    }
+    setPortalError(data?.message ?? "The membership page could not open — please try again.");
+    setOpening(false);
+  }
+
+  const endDate = (iso: string | null) =>
+    iso ? new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }) : null;
 
   async function load() {
     const res = await fetch("/api/entitlement").catch(() => null);
@@ -52,13 +73,29 @@ export default function AccountPage() {
               {status.readingsLeft !== null && (
                 <p className="text-parchment/70 text-sm">{status.readingsLeft} readings left this month</p>
               )}
-              <Link href="/journal" className="inline-block text-frost-300 underline underline-offset-4 text-sm">
-                Open your journal
-              </Link>
+              {status.cancelling ? (
+                <p className="text-parchment/70 text-sm">
+                  Cancelled — your membership stays active until {endDate(status.periodEnd)} and will not renew.
+                </p>
+              ) : (
+                status.periodEnd && (
+                  <p className="text-parchment/50 text-xs">Renews on {endDate(status.periodEnd)}. Cancel anytime.</p>
+                )
+              )}
+              <div className="flex justify-center gap-5 pt-1">
+                <Link href="/journal" className="text-frost-300 underline underline-offset-4 text-sm">
+                  Open your journal
+                </Link>
+                <button onClick={manage} disabled={opening} className="text-frost-300 underline underline-offset-4 text-sm disabled:opacity-60">
+                  {opening ? "Opening…" : "Manage membership"}
+                </button>
+              </div>
+              <p className="text-parchment/40 text-[11px]">Cancel, change card or download receipts.</p>
+              {portalError && <p className="text-red-400/90 text-xs">{portalError}</p>}
             </div>
           ) : null}
           {status.isPlus ? (
-            <UpgradeNudge isPlus hasDayPass={false} interval={status.interval} onOpenOptions={() => {}} onUpgraded={load} />
+            status.cancelling ? null : <UpgradeNudge isPlus hasDayPass={false} interval={status.interval} onOpenOptions={() => {}} onUpgraded={load} />
           ) : (
             <UpsellPrompt reason="upgrade" />
           )}

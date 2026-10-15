@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
+import { getOrCreateVisitorId } from "@/lib/session";
 
 export const runtime = "edge";
 
@@ -15,10 +16,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "invalid_email" }, { status: 400 });
   }
 
+  const visitorId = await getOrCreateVisitorId().catch(() => null);
   const db = supabaseAdmin();
   const { error } = await db
     .from("waitlist")
-    .upsert({ email, first_name: firstName, country, source, consent: true }, { onConflict: "email" });
+    .upsert({ email, first_name: firstName, country, source, consent: true, visitor_id: visitorId }, { onConflict: "email" });
 
   if (error) {
     return NextResponse.json({ error: "server_error" }, { status: 500 });

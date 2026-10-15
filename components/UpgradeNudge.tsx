@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import type { DisplayPrices } from "@/lib/pricing";
 
 // Shown under a reading:
-//  - 24-hour unlock holders: join ICE WHISPERS+ with the $1 credited.
-//  - Monthly members: switch to yearly for $87 (the month already paid is credited).
+//  - 24-hour unlock holders: join ICE WHISPERS+ with the $1 / €1 / 10 kr credited.
+//  - Monthly members: switch to yearly for $87 / €87 / 890 kr (the month already paid is credited).
 export default function UpgradeNudge({
   isPlus,
   hasDayPass,
@@ -21,6 +22,18 @@ export default function UpgradeNudge({
   const [confirming, setConfirming] = useState(false);
   const [state, setState] = useState<"idle" | "busy" | "done" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
+  const [prices, setPrices] = useState<DisplayPrices | null>(null);
+
+  // Prices in the currency this person pays in (SEK / EUR / USD).
+  useEffect(() => {
+    if (!hasDayPass && !isPlus) return;
+    fetch("/api/entitlement")
+      .then((r) => r.json())
+      .then((d) => d.prices && setPrices(d.prices))
+      .catch(() => {});
+  }, [hasDayPass, isPlus]);
+
+  if (!prices) return null;
 
   const box = "w-full max-w-xl mx-auto rounded-2xl border border-wyrd-400/40 bg-wyrd-600/[0.08] px-5 py-4 text-center space-y-2";
 
@@ -29,10 +42,10 @@ export default function UpgradeNudge({
       <div className={box}>
         <p className="text-frost-100 font-semibold">Enjoying the runes?</p>
         <p className="text-parchment/70 text-sm">
-          Keep every spread and your private rune journal with ICE WHISPERS+ — your $1 is credited.
+          Keep every spread and your private rune journal with ICE WHISPERS+ — your {prices.dayPass} is credited.
         </p>
         <button onClick={onOpenOptions} className="rounded-full bg-gradient-to-r from-frost-700 via-frost-500 to-wyrd-600 text-frost-100 font-semibold px-5 py-2 text-sm">
-          Upgrade — first month only $8.70
+          Upgrade — first month only {prices.monthlyCredited}
         </button>
       </div>
     );
@@ -68,14 +81,14 @@ export default function UpgradeNudge({
           <>
             <p className="text-parchment/70 text-sm">Switch to yearly and the month you’ve paid for is credited.</p>
             <button onClick={() => setConfirming(true)} className="rounded-full bg-gradient-to-r from-frost-700 via-frost-500 to-wyrd-600 text-frost-100 font-semibold px-5 py-2 text-sm">
-              Upgrade to a year for only $87
+              Upgrade to a year for only {prices.monthToYear}
             </button>
           </>
         ) : (
           <>
             <p className="text-parchment/70 text-sm">
-              Your card on file is charged <strong>$87</strong> today and your yearly membership starts now. It then
-              renews at $97/year. Cancel anytime.
+              Your card on file is charged <strong>{prices.monthToYear}</strong> today and your yearly membership starts now. It then
+              renews at {prices.yearly}/year. Cancel anytime.
             </p>
             <div className="flex justify-center gap-3">
               <button onClick={upgrade} disabled={state === "busy"} className="rounded-full bg-frost-500 text-void font-semibold px-5 py-2 text-sm disabled:opacity-60">

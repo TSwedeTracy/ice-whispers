@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Cinzel, EB_Garamond } from "next/font/google";
 import "./globals.css";
 import LegalLinks from "@/components/LegalLinks";
+import Script from "next/script";
 
 const display = Cinzel({
   subsets: ["latin"],
@@ -29,6 +30,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <footer className="relative z-10 pb-8">
           <LegalLinks />
         </footer>
+        {/* Vercel Web Analytics — cookie-free page views, countries, devices.
+            Turn it on in Vercel → project → Analytics → Enable. */}
+        <Script src="/_vercel/insights/script.js" strategy="afterInteractive" />
       </body>
     </html>
   );

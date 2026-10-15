@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { stripeClient, PRICING, ProductId, DAYPASS_CREDIT_COUPON } from "@/lib/stripe";
+import { stripeClient, PRODUCT_INFO, ProductId, DAYPASS_CREDIT_COUPON, AUTOMATIC_TAX } from "@/lib/stripe";
+import { PRICES, resolveCurrency } from "@/lib/pricing";
 import { getOrCreateVisitorId, getAccess } from "@/lib/session";
 import { getCurrentUser } from "@/lib/auth";
 
@@ -31,12 +32,15 @@ export async function POST(req: NextRequest) {
 
   // Bought "Unlock 24 hours" in the last 24 hours? Credit that $1 toward
   // the first membership payment.
-  const access = product !== "dayPass" ? await getAccess(visitorId, user) : null;
-  const dayPassCredit = Boolean(access?.dayPass);
+  const access = await getAccess(visitorId, user);
+  const dayPassCredit = product !== "dayPass" && access?.dayPass?.plan === "daypass_paid";
+  // One currency per visitor: SEK in Sweden, EUR in the EU, USD elsewhere.
+  const currency = resolveCurrency(access, req.headers.get("x-vercel-ip-country"));
 
   const stripe = stripeClient();
   const origin = req.headers.get("origin") ?? process.env.PUBLIC_SITE_URL ?? "http://localhost:3000";
   const metadata = {
+    currency,
     visitor_id: visitorId,
     product,
     user_id: user?.id ?? "",
@@ -53,14 +57,16 @@ export async function POST(req: NextRequest) {
           line_items: [
             {
               price_data: {
-                currency: PRICING.dayPass.currency,
-                product_data: { name: PRICING.dayPass.label, description: PRICING.dayPass.description },
-                unit_amount: PRICING.dayPass.amountCents,
+                currency,
+                product_data: { name: PRODUCT_INFO.dayPass.label, description: PRODUCT_INFO.dayPass.description },
+                unit_amount: PRICES[currency].dayPass,
+                tax_behavior: "inclusive",
               },
               quantity: 1,
             },
           ],
           allow_promotion_codes: true,
+          ...(AUTOMATIC_TAX ? { automatic_tax: { enabled: true } } : {}),
           success_url: `${origin}/?checkout=success`,
           cancel_url: `${origin}/?checkout=cancelled`,
         })
@@ -73,10 +79,11 @@ export async function POST(req: NextRequest) {
           line_items: [
             {
               price_data: {
-                currency: PRICING[product].currency,
-                product_data: { name: PRICING[product].label, description: PRICING[product].description },
-                recurring: { interval: PRICING[product].interval },
-                unit_amount: PRICING[product].amountCents,
+                currency,
+                product_data: { name: PRODUCT_INFO[product].label, description: PRODUCT_INFO[product].description },
+                recurring: { interval: PRODUCT_INFO[product].interval },
+                unit_amount: PRICES[currency][product],
+                tax_behavior: "inclusive",
               },
               quantity: 1,
             },
@@ -86,6 +93,7 @@ export async function POST(req: NextRequest) {
           ...(dayPassCredit ? { discounts: [{ coupon: DAYPASS_CREDIT_COUPON }] } : { allow_promotion_codes: true }),
           // No card needed when a code makes it free.
           payment_method_collection: "if_required",
+          ...(AUTOMATIC_TAX ? { automatic_tax: { enabled: true } } : {}),
           success_url: `${origin}/?checkout=success`,
           cancel_url: `${origin}/?checkout=cancelled`,
         });

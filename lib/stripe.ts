@@ -13,7 +13,7 @@ export function stripeClient(): Stripe {
 }
 
 // ── All pricing and limits live here — change them in ONE place. ──────────
-// Prices are what the customer pays (VAT included).
+// Prices are what the customer pays (VAT included) — see lib/pricing.ts.
 
 export const LIMITS = {
   freeReadingsPerDay: 1, // one free Daily Rune per day
@@ -30,26 +30,29 @@ export const DAYPASS_CREDIT_COUPON = "DAYPASS_CREDIT_1USD";
 // to yearly — "upgrade for only $87".
 export const MONTH_TO_YEAR_COUPON = "MONTH_TO_YEAR_10USD";
 
+// Stripe Tax (active in the ICE WHISPERS account, registered in Sweden):
+// calculates and reports VAT. Prices are VAT-inclusive, so the customer
+// always pays the price shown. Set STRIPE_AUTOMATIC_TAX=off in Vercel to
+// switch it off without a code change.
+export const AUTOMATIC_TAX = process.env.STRIPE_AUTOMATIC_TAX !== "off";
+
 export type ProductId = "dayPass" | "plusMonthly" | "plusYearly";
 
-export const PRICING = {
+// Amounts per currency live in lib/pricing.ts (USD/EUR 1 / 9.70 / 97,
+// SEK 10 / 99 / 990). Both coupons above have SEK and EUR amounts set in
+// Stripe (currency_options), so the credits work in every currency.
+export const PRODUCT_INFO = {
   dayPass: {
     label: "ICE WHISPERS — 24 hours",
-    amountCents: 100,
-    currency: "usd",
     description: `All spreads, up to ${LIMITS.dayPassReadings} readings, for the next 24 hours.`,
   },
   plusMonthly: {
     label: "ICE WHISPERS+ (monthly)",
-    amountCents: 970,
-    currency: "usd",
     interval: "month" as const,
     description: "All spreads — 1, 3 and 5 runes — and your personal rune journal.",
   },
   plusYearly: {
     label: "ICE WHISPERS+ (yearly)",
-    amountCents: 9700,
-    currency: "usd",
     interval: "year" as const,
     description: "All spreads — 1, 3 and 5 runes — and your personal rune journal. Two months free.",
   },

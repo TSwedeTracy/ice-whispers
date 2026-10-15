@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import SpreadPreview from "@/components/SpreadPreview";
 import AuthForm from "@/components/AuthForm";
+import type { DisplayPrices } from "@/lib/pricing";
 
 type Product = "dayPass" | "plusMonthly" | "plusYearly";
 export type UpsellReason = "limit_reached" | "day_pass_used" | "monthly_quota" | "locked_spread" | "upgrade";
@@ -38,6 +39,7 @@ export default function UpsellPrompt({ reason = "limit_reached" }: { reason?: Up
   const [consent, setConsent] = useState(false);
   const [credit, setCredit] = useState(false);
   const [hasDayPass, setHasDayPass] = useState(false);
+  const [prices, setPrices] = useState<DisplayPrices | null>(null);
 
   useEffect(() => {
     fetch("/api/entitlement")
@@ -45,6 +47,7 @@ export default function UpsellPrompt({ reason = "limit_reached" }: { reason?: Up
       .then((d) => {
         setCredit(Boolean(d.dayPassCredit));
         setHasDayPass(Boolean(d.hasDayPass));
+        if (d.prices) setPrices(d.prices);
       })
       .catch(() => {});
   }, []);
@@ -92,6 +95,8 @@ export default function UpsellPrompt({ reason = "limit_reached" }: { reason?: Up
   }
 
   const copy = COPY[reason];
+  // Prices arrive with /api/entitlement, in the visitor's own currency.
+  const pr = (k: keyof DisplayPrices) => (prices ? prices[k] : "…");
   const showDayPass = !hasDayPass && reason !== "monthly_quota";
 
   const cols: {
@@ -110,7 +115,7 @@ export default function UpsellPrompt({ reason = "limit_reached" }: { reason?: Up
           {
             id: "dayPass" as Product,
             name: "24 Hours",
-            price: "$1",
+            price: pr("dayPass"),
             per: "one time",
             features: ["All spreads: 1, 3 & 5 runes", "Up to 10 readings in 24 h", "No account needed"],
             cta: "Unlock",
@@ -121,19 +126,19 @@ export default function UpsellPrompt({ reason = "limit_reached" }: { reason?: Up
     {
       id: "plusMonthly",
       name: "ICE WHISPERS+",
-      price: credit ? "$8.70" : "$9.70",
-      per: credit ? "first month, then $9.70/mo" : "per month",
-      note: credit ? "Your $1 is credited" : undefined,
-      features: ["All spreads: 1, 3 & 5 runes", "Private journal + PDF", "300 readings / month", "Switch to yearly for $87"],
+      price: credit ? pr("monthlyCredited") : pr("monthly"),
+      per: credit ? `first month, then ${pr("monthly")}/mo` : "per month",
+      note: credit ? `Your ${pr("dayPass")} is credited` : undefined,
+      features: ["All spreads: 1, 3 & 5 runes", "Private journal + PDF", "300 readings / month", `Switch to yearly for ${pr("monthToYear")}`],
       cta: "Join monthly",
       style: "border-frost-300/40",
     },
     {
       id: "plusYearly",
       name: "ICE WHISPERS+",
-      price: credit ? "$96" : "$97",
-      per: credit ? "first year, then $97/yr" : "per year",
-      note: credit ? "Your $1 is credited" : undefined,
+      price: credit ? pr("yearlyCredited") : pr("yearly"),
+      per: credit ? `first year, then ${pr("yearly")}/yr` : "per year",
+      note: credit ? `Your ${pr("dayPass")} is credited` : undefined,
       badge: "2 months free",
       features: ["All spreads: 1, 3 & 5 runes", "Private journal + PDF", "300 readings / month"],
       cta: "Join yearly",
@@ -182,8 +187,8 @@ export default function UpsellPrompt({ reason = "limit_reached" }: { reason?: Up
         ))}
       </div>
 
-      {hasDayPass && reason !== "monthly_quota" && (
-        <p className="text-parchment/50 text-xs">You have an active 24-hour unlock — the $1 is credited if you join today.</p>
+      {credit && reason !== "monthly_quota" && (
+        <p className="text-parchment/50 text-xs">You have an active 24-hour unlock — the {pr("dayPass")} is credited if you join today.</p>
       )}
 
       <label className="flex gap-2 items-start text-left text-[12px] text-parchment/60 leading-snug cursor-pointer max-w-xl mx-auto">

@@ -42,8 +42,10 @@ export async function POST(req: NextRequest) {
           user_id: userId,
           stripe_customer_id: session.customer,
           status: "day_pass",
-          plan: null,
+          // Only a PAID unlock is credited toward membership (not a free VIP code).
+          plan: (session.amount_total ?? 0) > 0 ? "daypass_paid" : "daypass_free",
           billing_interval: null,
+          currency: session.currency ?? null,
           current_period_start: new Date(now).toISOString(),
           current_period_end: new Date(now + 24 * 60 * 60 * 1000).toISOString(),
           updated_at: new Date().toISOString(),
@@ -71,6 +73,8 @@ export async function POST(req: NextRequest) {
           status: "active",
           plan: "plus",
           billing_interval: interval,
+          cancel_at_period_end: false,
+          currency: session.currency ?? null,
           current_period_start: periodStart,
           current_period_end: periodEnd,
           updated_at: new Date().toISOString(),
@@ -96,6 +100,8 @@ export async function POST(req: NextRequest) {
           current_period_start: iso(sub.current_period_start),
           current_period_end: iso(sub.current_period_end),
           billing_interval: sub.items?.data?.[0]?.price?.recurring?.interval ?? undefined,
+          currency: sub.currency ?? undefined,
+          cancel_at_period_end: Boolean(sub.cancel_at_period_end || sub.cancel_at),
           updated_at: new Date().toISOString(),
         })
         .eq("stripe_subscription_id", sub.id);

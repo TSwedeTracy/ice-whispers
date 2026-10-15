@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
-import { stripeClient, PRICING, MONTH_TO_YEAR_COUPON } from "@/lib/stripe";
+import { stripeClient, MONTH_TO_YEAR_COUPON } from "@/lib/stripe";
+import { PRICES, isCurrency, type Currency } from "@/lib/pricing";
 import { getOrCreateVisitorId, getAccess } from "@/lib/session";
 import { getCurrentUser } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabase";
 
 export const runtime = "nodejs";
 
-// Monthly member → yearly, "for only $87": the yearly price ($97) minus a
-// $10 credit for the month already paid. Charged now to the card on file.
+// Monthly member → yearly, "for only $87 / €87 / 890 kr": the yearly price
+// minus a credit for the month already paid. Charged now to the card on file.
 export async function POST() {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ message: "Please sign in first." }, { status: 401 });
@@ -33,6 +34,8 @@ export async function POST() {
     const item = sub.items.data[0];
     const product = typeof item.price.product === "string" ? item.price.product : item.price.product.id;
     // Keep an existing discount (e.g. a VIP test code); otherwise give the $10 credit.
+    // Stay in the currency they already pay in (a Stripe customer can't mix currencies).
+    const currency: Currency = isCurrency(sub.currency) ? sub.currency : "usd";
     const existing = (sub.discounts ?? []).map((d: any) => ({ discount: typeof d === "string" ? d : d.id }));
 
     const updated = (await stripe.subscriptions.update(sub.id, {
@@ -40,10 +43,11 @@ export async function POST() {
         {
           id: item.id,
           price_data: {
-            currency: PRICING.plusYearly.currency,
+            currency,
             product,
             recurring: { interval: "year" },
-            unit_amount: PRICING.plusYearly.amountCents,
+            unit_amount: PRICES[currency].plusYearly,
+            tax_behavior: "inclusive",
           },
         },
       ],

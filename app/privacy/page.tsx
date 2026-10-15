@@ -28,6 +28,20 @@ export default function PrivacyPage() {
           12 months.
         </li>
         <li>
+          <strong>How you found us:</strong> on your first visit we note the channel or website that sent you (for example
+          Instagram or a search engine), your country, and the page you arrived on — linked to the visitor ID, never to
+          your name. It helps us understand which channels work (legitimate interest). Kept up to 12 months.
+        </li>
+        <li>
+          <strong>Fair use of free readings:</strong> to limit free readings per internet connection, we store a one-way,
+          daily-changing code derived from your IP address (never the IP address itself). It cannot be turned back into
+          your IP address and is deleted after 30 days (legitimate interest).
+        </li>
+        <li>
+          <strong>Website statistics:</strong> Vercel Web Analytics counts page views, countries and device types
+          without cookies and without identifying you.
+        </li>
+        <li>
           <strong>Your questions and readings:</strong> needed to create the reading (performance of contract). If you do
           not save a reading to your journal, its question and text are <strong>automatically erased after 24 hours</strong>;
           we keep only a count, the drawn runes and the short answer so limits work.

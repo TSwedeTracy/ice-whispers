@@ -1,4 +1,5 @@
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
+import type { FirstTouch } from "./traffic";
 import { v4 as uuidv4 } from "uuid";
 import { supabaseAdmin } from "./supabase";
 import { LIMITS } from "./stripe";
@@ -13,7 +14,22 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * Limits are always re-checked against the database, so a page refresh
  * cannot reset them.
  */
-export async function getOrCreateVisitorId(): Promise<string> {
+/** Where a new visitor came from (sent by the start page) plus their country. */
+function trafficFields(touch?: FirstTouch) {
+  let country: string | null = null;
+  try {
+    country = headers().get("x-vercel-ip-country");
+  } catch {}
+  return {
+    source: touch?.source ?? null,
+    referrer: touch?.referrer ?? null,
+    campaign: touch?.campaign ?? null,
+    landing: touch?.landing ?? null,
+    country,
+  };
+}
+
+export async function getOrCreateVisitorId(touch?: FirstTouch): Promise<string> {
   const store = cookies();
   const existing = store.get(VISITOR_COOKIE)?.value;
   const db = supabaseAdmin();
@@ -21,13 +37,15 @@ export async function getOrCreateVisitorId(): Promise<string> {
   if (existing && UUID_RE.test(existing)) {
     // An old cookie (e.g. from before the database moved) would otherwise
     // make every later write fail with a foreign-key error.
-    const { error } = await db.from("visitors").upsert({ id: existing }, { onConflict: "id", ignoreDuplicates: true });
+    const { error } = await db
+      .from("visitors")
+      .upsert({ id: existing, ...trafficFields(touch) }, { onConflict: "id", ignoreDuplicates: true });
     if (error) console.error("getOrCreateVisitorId: visitor upsert failed:", error.message);
     return existing;
   }
 
   const id = uuidv4();
-  const { error } = await db.from("visitors").insert({ id });
+  const { error } = await db.from("visitors").insert({ id, ...trafficFields(touch) });
   if (error) console.error("getOrCreateVisitorId: visitor insert failed:", error.message);
 
   store.set(VISITOR_COOKIE, id, { httpOnly: true, secure: true, sameSite: "lax", maxAge: 60 * 60 * 24 * 365, path: "/" });
@@ -44,6 +62,8 @@ interface EntitlementRow {
   billing_interval: string | null;
   current_period_start: string | null;
   current_period_end: string | null;
+  currency: string | null; // what they paid in: usd | eur | sek
+  cancel_at_period_end?: boolean | null;
 }
 
 export interface Access {
@@ -58,7 +78,7 @@ export async function getAccess(visitorId: string, user: CurrentUser | null): Pr
   const filter = user ? `visitor_id.eq.${visitorId},user_id.eq.${user.id}` : `visitor_id.eq.${visitorId}`;
   const { data, error } = await db
     .from("entitlements")
-    .select("visitor_id, user_id, status, plan, billing_interval, current_period_start, current_period_end")
+    .select("visitor_id, user_id, status, plan, billing_interval, current_period_start, current_period_end, currency, cancel_at_period_end")
     .or(filter);
   if (error) {
     console.error("getAccess: entitlements query failed:", error.message);
@@ -115,6 +135,28 @@ export type EntitlementCheck =
  *    readings per month — unused readings stay available all month.
  *  - Everyone: LIMITS.burstPerHour per hour (stops bots, never people).
  */
+// Free Daily Runes per internet connection per day — stops endless free
+// readings from private/incognito tabs (a new tab = a new visitor cookie).
+// Not 1, because families and workplaces share one connection.
+const FREE_READINGS_PER_CONNECTION = 3;
+
+/**
+ * A one-way, daily-changing fingerprint of the visitor's IP address. The IP
+ * itself is never stored, and the same IP gives a different value tomorrow.
+ */
+async function connectionHash(today: string): Promise<string | null> {
+  let ip = "";
+  try {
+    const h = headers();
+    ip = (h.get("x-forwarded-for") ?? "").split(",")[0].trim() || h.get("x-real-ip") || "";
+  } catch {}
+  if (!ip) return null;
+  const salt = process.env.DRAW_SIGNING_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || "iw";
+  const data = new TextEncoder().encode(`${ip}|${today}|${salt}`);
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(digest).slice(0, 16), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 export async function checkAndConsumeEntitlement(
   visitorId: string,
   user: CurrentUser | null,
@@ -168,11 +210,29 @@ export async function checkAndConsumeEntitlement(
     return fail;
   }
 
-  // The free Daily Rune comes first, even for day-pass holders.
+  // The free Daily Rune comes first, even for day-pass holders — at most
+  // FREE_READINGS_PER_CONNECTION per internet connection per day.
+  let ipHash: string | null = null;
+  let connectionUsedUp = false;
   if (!usage?.free_reading_used) {
+    ipHash = await connectionHash(today);
+    if (ipHash) {
+      const { count } = await db
+        .from("usage_daily")
+        .select("visitor_id", { count: "exact", head: true })
+        .eq("usage_date", today)
+        .eq("ip_hash", ipHash)
+        .eq("free_reading_used", true);
+      connectionUsedUp = (count ?? 0) >= FREE_READINGS_PER_CONNECTION;
+    }
+  }
+  if (!usage?.free_reading_used && !connectionUsedUp) {
     const { error } = await db
       .from("usage_daily")
-      .upsert({ visitor_id: visitorId, usage_date: today, free_reading_used: true }, { onConflict: "visitor_id,usage_date" });
+      .upsert(
+        { visitor_id: visitorId, usage_date: today, free_reading_used: true, ip_hash: ipHash },
+        { onConflict: "visitor_id,usage_date" }
+      );
     if (error) {
       console.error("checkAndConsumeEntitlement: usage_daily upsert failed:", error.message);
       return fail;

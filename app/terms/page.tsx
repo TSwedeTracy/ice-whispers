@@ -36,32 +36,37 @@ export default function TermsPage() {
           <strong>Free:</strong> one Daily Rune reading per day.
         </li>
         <li>
-          <strong>Unlock 24 hours — $1 (one-time):</strong> up to 10 readings in any spread (1, 3 or 5 runes) during 24
+          <strong>Unlock 24 hours — $1 / €1 / 10 kr (one-time):</strong> up to 10 readings in any spread (1, 3 or 5 runes) during 24
           hours from purchase.
           No account needed. Unused readings expire after 24 hours.
         </li>
         <li>
-          <strong>ICE WHISPERS+ — $9.70/month or $97/year:</strong> all spreads (1, 3 and 5 runes), a private rune journal
+          <strong>ICE WHISPERS+ — $9.70 / €9.70 / 99 kr per month, or $97 / €97 / 990 kr per year:</strong> all spreads (1, 3 and 5 runes), a private rune journal
           with PDF download, and up to 300 readings per month (a monthly pool — unused readings stay available until the
           month ends; yearly members receive a new pool every month). Requires an account. A limit of 30 readings per hour
           applies to all users to prevent automated abuse.
         </li>
         <li>
-          <strong>Upgrade credit:</strong> if you join ICE WHISPERS+ while your 24-hour unlock is active, the $1 is
-          deducted from your first membership payment. Monthly members can switch to yearly for $87 (the $97 yearly
-          price minus a $10 credit for the month already paid); the yearly period starts on the day you switch.
+          <strong>Upgrade credit:</strong> if you join ICE WHISPERS+ while your 24-hour unlock is active, the price you
+          paid for it ($1 / €1 / 10 kr) is deducted from your first membership payment. Monthly members can switch to
+          yearly for $87 / €87 / 890 kr (the yearly price minus a credit for the month already paid); the yearly period
+          starts on the day you switch.
         </li>
       </ul>
       <p>
-        Prices are in US dollars and include VAT where applicable. Payment is handled by Stripe; we never see or store your
+        You see and pay prices in one currency, based on where you are: Swedish kronor (SEK) in Sweden, euro (EUR) in
+        the rest of the EU, and US dollars (USD) elsewhere. A membership stays in the currency you first paid in.
+        Prices include VAT where applicable. Payment is handled by Stripe; we never see or store your
         card details.
       </p>
 
       <h2>4. Subscriptions, renewal and cancellation</h2>
       <p>
-        ICE WHISPERS+ renews automatically every month or year until you cancel. You can cancel at any time by emailing{" "}
+        ICE WHISPERS+ renews automatically every month or year until you cancel. You can cancel at any time yourself
+        under <strong>Account → Manage membership</strong>, or by emailing{" "}
         <a href={`mailto:${COMPANY.email}`}>{COMPANY.email}</a>; the membership then stays active until the end of the
-        period you have paid for and is not renewed. We will tell you in advance by email before any price change takes
+        period you have paid for and is not renewed. Yearly members receive a reminder by email before each yearly
+        renewal. We will tell you in advance by email before any price change takes
         effect, and you can cancel before it applies.
       </p>
 
@@ -73,7 +78,12 @@ export default function TermsPage() {
         wished to withdraw. Refunds are made to the original payment method within 14 days of your notice.
       </p>
       <p>
-        <strong>Unlock 24 hours ($1):</strong> when you buy it, you ask us to start immediately and confirm that you lose
+        <strong>Yearly renewal — our promise:</strong> if your yearly membership renews and you didn’t mean it to, email
+        us within 14 days of the renewal. If you haven’t drawn any readings since the renewal, we refund the full renewal
+        payment. This is a voluntary promise on top of your legal rights.
+      </p>
+      <p>
+        <strong>Unlock 24 hours:</strong> when you buy it, you ask us to start immediately and confirm that you lose
         your right of withdrawal once the 24-hour service has been fully provided. If you withdraw before the 24 hours have
         ended, we refund the unused part in proportion to the time left.
       </p>

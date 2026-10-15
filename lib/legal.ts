@@ -8,4 +8,4 @@ export const COMPANY = {
   website: "www.icewhispers.com",
 };
 
-export const LEGAL_UPDATED = "8 October 2026";
+export const LEGAL_UPDATED = "14 October 2026";
