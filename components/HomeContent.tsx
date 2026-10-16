@@ -96,8 +96,15 @@ export default function HomeContent() {
               The meanings build on the traditional rune meanings, written for modern questions: each rune has an upright and
               a reversed reading, and its own meaning for love, work, money, decisions and challenges.
             </p>
+            <p>This website is the deck’s digital companion. A physical edition is planned — join the waitlist for updates.</p>
+            <p className="text-parchment/70 italic">
+              Created by Tracy J Hoffman, inspired by a childhood surrounded by her mother’s tarot cards, astrology and
+              crystals—and brought to life through Nordic imagery and AI.
+            </p>
             <p>
-              This website is the deck’s digital companion. The physical deck is coming soon — join the waitlist to hear first.
+              <Link href="/our-story" className="text-frost-300 underline underline-offset-4 hover:text-frost-100">
+                Discover the story behind ICE WHISPERS →
+              </Link>
             </p>
           </div>
         </div>

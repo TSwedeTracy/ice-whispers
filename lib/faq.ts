@@ -57,6 +57,6 @@ export const FAQ: Faq[] = [
   },
   {
     q: "Can I buy the physical ICE WHISPERS™ deck?",
-    a: "The physical ICE WHISPERS™ Elder Futhark deck — 24 runes plus Wyrd — is coming soon. Join the waitlist on this page to hear first when it can be ordered.",
+    a: "The physical ICE WHISPERS™ Elder Futhark deck — 24 runes plus Wyrd — is planned. Join the waitlist on this page for updates.",
   },
 ];

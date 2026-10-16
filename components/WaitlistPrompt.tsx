@@ -37,7 +37,7 @@ export default function WaitlistPrompt({ source = "post_reading_cta" }: { source
       <p className="uppercase tracking-[0.3em] text-[10px] text-frost-300/70">Pre-launch waitlist</p>
       <p className="font-display text-lg text-frost-100 tracking-wide">Want to hold the runes in your hands?</p>
       <p className="text-parchment/60 text-sm">
-        The physical ICE WHISPERS™ Elder Futhark deck is coming soon. Leave your email to show your interest — no
+        The physical ICE WHISPERS™ Elder Futhark deck is planned. Leave your email to show your interest — no
         spam, just one message when it's ready to order.
       </p>
       <div className="flex flex-col gap-2">

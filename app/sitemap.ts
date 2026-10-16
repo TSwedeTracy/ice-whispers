@@ -8,6 +8,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
   return [
     { url: `${SITE_URL}/`, lastModified: now, changeFrequency: "weekly", priority: 1 },
     { url: `${SITE_URL}/runes`, lastModified: now, changeFrequency: "monthly", priority: 0.9 },
+    { url: `${SITE_URL}/our-story`, lastModified: now, changeFrequency: "yearly", priority: 0.6 },
     ...RUNES_IN_ORDER.map((r) => ({
       url: `${SITE_URL}/runes/${runeSlug(r)}`,
       lastModified: now,
