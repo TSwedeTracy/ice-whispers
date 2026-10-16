@@ -7,11 +7,11 @@
 // pass (open /public/cards and compare each image's glowing rune symbol
 // against lib/runes.ts) before launch. See MAPPING.md for a checklist.
 
-export const CARD_BACK = "/cards/back.png"; // Baksida_NY.png
-export const DECK_COVER = "/cards/cover.png"; // framsida_ICE_Whispers_.png
-export const LOGO = "/cards/logo.png"; // logo.png, chroma-keyed transparent
-export const LOGO_BOTTOM = "/cards/logo-bottom.png"; // logo nederkant.png, chroma-keyed transparent
-export const HERO_BG = "/cards/hero-bg.png"; // background app.png, text-free atmosphere
+export const CARD_BACK = "/cards/web/back.webp"; // Baksida_NY.png
+export const DECK_COVER = "/cards/web/cover.webp"; // framsida_ICE_Whispers_.png
+export const LOGO = "/cards/web/logo.webp"; // logo.png, chroma-keyed transparent
+export const LOGO_BOTTOM = "/cards/web/logo-bottom.webp"; // logo nederkant.png, chroma-keyed transparent
+export const HERO_BG = "/cards/web/hero-bg.webp"; // background app.png, text-free atmosphere
 
 const filenameById: Record<number, string> = {
   0: "0-wyrd.png", // 0_Wyrd_.png
@@ -41,8 +41,21 @@ const filenameById: Record<number, string> = {
   24: "24.png",
 };
 
+// The original PNGs (~3 MB each) stay in /public/cards as masters. The site
+// serves light WebP copies: /cards/web (768 px, ~250 KB) for cards shown
+// large, /cards/thumb (240 px, ~30 KB) for grids. Regenerate both if the
+// artwork changes.
 export function cardImagePath(runeId: number): string {
   const filename = filenameById[runeId];
   if (!filename) throw new Error(`No artwork mapped for rune id ${runeId}`);
-  return `/cards/${filename}`;
+  return `/cards/web/${filename.replace(/\.png$/, ".webp")}`;
+}
+
+export function cardThumbPath(runeId: number): string {
+  return cardImagePath(runeId).replace("/cards/web/", "/cards/thumb/");
+}
+
+/** Original full-size PNG (used for social sharing images). */
+export function cardOriginalPath(runeId: number): string {
+  return `/cards/${filenameById[runeId]}`;
 }

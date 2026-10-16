@@ -9,7 +9,7 @@ const COUNTRIES = [
   "Singapore", "Brazil", "Mexico", "Other",
 ] as const;
 
-export default function WaitlistPrompt() {
+export default function WaitlistPrompt({ source = "post_reading_cta" }: { source?: string }) {
   const [email, setEmail] = useState("");
   const [country, setCountry] = useState("");
   const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
@@ -19,7 +19,7 @@ export default function WaitlistPrompt() {
     const res = await fetch("/api/waitlist", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email, country: country || null, source: "post_reading_cta" }),
+      body: JSON.stringify({ email, country: country || null, source }),
     });
     setStatus(res.ok ? "done" : "error");
   }
@@ -41,13 +41,13 @@ export default function WaitlistPrompt() {
         spam, just one message when it's ready to order.
       </p>
       <div className="flex flex-col gap-2">
-        <div className="flex gap-2">
+        <div className="flex flex-col sm:flex-row gap-2">
           <input
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="your@email.com"
-            className="flex-1 rounded-full bg-void/60 border border-frost-300/40 focus:border-frost-500 focus:outline-none px-4 py-2 text-sm text-parchment placeholder:text-frost-300/60"
+            className="flex-1 min-w-0 rounded-full bg-void/60 border border-frost-300/40 focus:border-frost-500 focus:outline-none px-4 py-2 text-sm text-parchment placeholder:text-frost-300/60"
           />
           <button
             onClick={submit}

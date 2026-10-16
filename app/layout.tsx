@@ -17,9 +17,40 @@ const body = EB_Garamond({
 });
 
 export const metadata: Metadata = {
-  title: "ICE WHISPERS™ — Rune Oracle",
+  metadataBase: new URL(process.env.PUBLIC_SITE_URL || "https://www.icewhispers.com"),
+  title: {
+    default: "Free Rune Reading Online — Ask the Elder Futhark Runes | ICE WHISPERS™",
+    template: "%s | ICE WHISPERS™",
+  },
   description:
-    "Ask the Elder Futhark runes. ICE WHISPERS™ is a Nordic rune divination experience — the digital companion to the ICE WHISPERS™ physical deck.",
+    "Get a free rune reading every day. Ask your question, draw from the ICE WHISPERS™ Elder Futhark deck and receive a reading that answers it — love, work, money and decisions.",
+  applicationName: "ICE WHISPERS™",
+  keywords: [
+    "free rune reading",
+    "rune reading online",
+    "elder futhark",
+    "rune meanings",
+    "norse runes",
+    "viking runes",
+    "rune oracle",
+    "rune cards",
+    "yes or no rune reading",
+    "daily rune",
+  ],
+  openGraph: {
+    type: "website",
+    siteName: "ICE WHISPERS™",
+    title: "Free Rune Reading — Ask the Elder Futhark Runes",
+    description: "Ask your question, draw a rune and receive a reading that answers it. One free Daily Rune every day.",
+    images: [{ url: "/og.jpg", width: 1200, height: 630, alt: "ICE WHISPERS rune oracle cards" }],
+    locale: "en_US",
+  },
+  twitter: { card: "summary_large_image", images: ["/og.jpg"] },
+  // Search Console / Bing Webmaster verification codes, set in Vercel (optional).
+  verification: {
+    google: process.env.GOOGLE_SITE_VERIFICATION || undefined,
+    other: process.env.BING_SITE_VERIFICATION ? { "msvalidate.01": process.env.BING_SITE_VERIFICATION } : undefined,
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

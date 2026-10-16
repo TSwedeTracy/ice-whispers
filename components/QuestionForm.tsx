@@ -29,7 +29,7 @@ export default function QuestionForm({
   return (
     <div className="w-full max-w-xl mx-auto flex flex-col items-center gap-8 animate-fadeUp">
       <div className="text-center space-y-3 flex flex-col items-center">
-        <p className="uppercase tracking-[0.35em] text-frost-300 text-xs font-body">Ask the Runes</p>
+        <h1 className="uppercase tracking-[0.35em] text-frost-300 text-xs font-body font-normal">Ask the Runes · Free Rune Reading</h1>
         <Image src={LOGO} alt="ICE WHISPERS — Rune Oracle" width={1254} height={1254} priority className="w-52 md:w-64 h-auto -my-4" />
         <p className="text-parchment/70 max-w-md mx-auto text-base leading-relaxed">
           Ask your question — of love, work, money, a decision, a challenge, or the path ahead.
