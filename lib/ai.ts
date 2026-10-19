@@ -225,10 +225,14 @@ export async function generateReading(question: string, cards: DrawnCard[], spre
   if (!apiKey) return generateMock(question, cards, spread);
 
   // Two attempts before the (English, rule-based) fallback, so a single
-  // hiccup never turns a Swedish question into an English answer.
+  // hiccup never turns a Swedish question into an English answer — but all
+  // within ~50 s, so the request never outlives the server's time limit.
+  const deadline = Date.now() + 50_000;
   for (let attempt = 1; attempt <= 2; attempt++) {
+    const timeLeft = deadline - Date.now();
+    if (timeLeft < 15_000) break; // not enough time for a full second try
     try {
-      const reading = await generateWithProvider(apiKey, question, cards, spread);
+      const reading = await generateWithProvider(apiKey, question, cards, spread, timeLeft);
       // Last line of defence: never show a reading whose wording could be
       // read as encouraging violence, self-harm or crime.
       const allText = [reading.answer, reading.cardMeaning, reading.interpretation, reading.whisper,
@@ -255,8 +259,8 @@ THE DIRECTION IS ALREADY DECIDED
 - You receive a "direction" (e.g. likely_yes, not_yet). Never contradict it, soften it into vagueness, or invent a different one. Your job is to phrase it and explain WHY the rune(s) lead there.
 
 answer (the headline, max 5 words, UPPERCASE):
-- Yes/no questions ("Will I...", "Kommer jag...", "Should I..."): translate the given yes/no label (e.g. LIKELY YES → TROLIGEN JA).
-- "How will it go" questions: translate the given outcome label (e.g. LIKELY GOOD → TROLIGEN BRA).
+- Yes/no questions ("Will I...", "Kommer jag...", "Should I..."): translate the given yes/no label literally and briefly (e.g. LIKELY YES → TROLIGEN JA, UNCERTAIN → OVISST, NOT YET → INTE ÄN). Never add words such as "yet"/"ännu" that are not in the label.
+- "How will it go" questions: translate the given outcome label literally (e.g. LIKELY GOOD → TROLIGEN BRA, UNCLEAR → OKLART).
 - Open questions ("What should I focus on?", "Why..."): a 2–5 word essence of the rune's answer, e.g. "VÄLJ RÖRELSE" or "LET IT REST".
 
 interpretation:
@@ -294,7 +298,7 @@ function cardBlock(card: DrawnCard, positionLabel: string | null) {
   };
 }
 
-async function generateWithProvider(apiKey: string, question: string, cards: DrawnCard[], spread: SpreadType): Promise<Reading> {
+async function generateWithProvider(apiKey: string, question: string, cards: DrawnCard[], spread: SpreadType, timeoutMs = 50_000): Promise<Reading> {
   const ctx = buildSpreadContext(question, cards, spread);
   const isSingle = spread === "daily";
   const positions = ctx.cardReadings?.map((c) => c.position) ?? [null];
@@ -331,7 +335,7 @@ async function generateWithProvider(apiKey: string, question: string, cards: Dra
     shape,
   ].join("\n");
 
-  const text = await callModel(apiKey, SYSTEM_PROMPT, userPrompt, isSingle ? 1800 : 2600);
+  const text = await callModel(apiKey, SYSTEM_PROMPT, userPrompt, isSingle ? 1800 : 2600, timeoutMs);
   const parsed = parseJson(text);
 
   if (typeof parsed.interpretation !== "string" || typeof parsed.whisper !== "string") {
@@ -397,9 +401,10 @@ export function parseJson(text: string): any {
 }
 
 // The only provider-specific function. To switch provider, change this.
-async function callModel(apiKey: string, system: string, user: string, maxTokens: number): Promise<string> {
+async function callModel(apiKey: string, system: string, user: string, maxTokens: number, timeoutMs = 50_000): Promise<string> {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
+    signal: AbortSignal.timeout(timeoutMs),
     headers: {
       "content-type": "application/json",
       "x-api-key": apiKey,
