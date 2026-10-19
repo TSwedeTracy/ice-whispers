@@ -6,7 +6,10 @@ import { supabaseAdmin } from "@/lib/supabase";
 import { quickSafetyCheck, safetyMessageFor } from "@/lib/safety";
 import { verifyDraw, hashQuestion } from "@/lib/draw-token";
 
-export const runtime = "edge";
+// Node runtime (not edge): edge functions must start answering within 25 s,
+// and a 3- or 5-rune reading can take longer to write. Up to 60 s here.
+export const runtime = "nodejs";
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
