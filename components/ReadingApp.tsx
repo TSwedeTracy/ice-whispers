@@ -35,6 +35,10 @@ export default function ReadingApp() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [safetyMessage, setSafetyMessage] = useState<SafetyMessage | null>(null);
   const readingTopRef = useRef<HTMLDivElement>(null);
+  const cardsRef = useRef<HTMLDivElement>(null);
+  const [drawToken, setDrawToken] = useState<string | null>(null);
+  const [readingError, setReadingError] = useState<string | null>(null);
+  const [waitedLong, setWaitedLong] = useState(false);
   const [upsellReason, setUpsellReason] = useState<UpsellReason>("limit_reached");
   const [signedIn, setSignedIn] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -109,6 +113,7 @@ export default function ReadingApp() {
     setSpread(s);
     setErrorMessage(null);
     setStage("drawing");
+    window.scrollTo({ top: 0, behavior: "smooth" });
 
     const res = await fetch("/api/draw", {
       method: "POST",
@@ -148,18 +153,32 @@ export default function ReadingApp() {
     setReading(null);
     setStage("revealing");
 
-    // Fetch the full reading now, in the background, so each tap only
-    // reveals what's already there — no waiting between cards.
-    // Never leave the person waiting forever: give up after 90 seconds.
+    setDrawToken(data.drawToken);
+    // Bring the card(s) into view — on phones the page may be scrolled.
+    requestAnimationFrame(() => cardsRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }));
+    fetchReading(q, data.drawToken);
+  }
+
+  // Fetches the full reading in the background while the person turns the
+  // runes. If it fails, the drawn cards stay and "Try again" re-asks for the
+  // SAME draw (the draw token stays valid until the reading is stored), so a
+  // hiccup never costs anyone a reading.
+  function fetchReading(q: string, token: string) {
+    setReadingError(null);
+    setWaitedLong(false);
+    const slow = setTimeout(() => setWaitedLong(true), 12_000);
     const ctrl = new AbortController();
-    const giveUp = setTimeout(() => ctrl.abort(), 90_000);
+    const giveUp = setTimeout(() => ctrl.abort(), 75_000);
     fetch("/api/reading", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ question: q, drawToken: data.drawToken }),
+      body: JSON.stringify({ question: q, drawToken: token }),
       signal: ctrl.signal,
     })
-      .finally(() => clearTimeout(giveUp))
+      .finally(() => {
+        clearTimeout(giveUp);
+        clearTimeout(slow);
+      })
       .then((r) => r.json())
       .then((result) => {
         if (result.blocked) showCare(result.blocked);
@@ -168,10 +187,7 @@ export default function ReadingApp() {
           setStage("ask");
         } else setReading(result);
       })
-      .catch(() => {
-        setErrorMessage("The runes are unreachable right now — try again shortly.");
-        setStage("ask");
-      });
+      .catch(() => setReadingError("The runes went quiet for a moment."));
   }
 
   // One tap turns the rune(s). With 3 or 5 runes they turn one after
@@ -277,11 +293,19 @@ export default function ReadingApp() {
 
         {(stage === "drawing" || stage === "revealing") && (
           <div
+            ref={cardsRef}
             className={`flex flex-col items-center gap-8 w-full ${
               stage === "revealing" && revealedCount === 0 ? "cursor-pointer" : ""
             }`}
             onClick={stage === "revealing" && revealedCount === 0 ? handleAdvance : undefined}
           >
+            {stage === "drawing" && (
+              <div className="flex flex-col items-center gap-4 animate-fadeUp">
+                <RuneCard runeId={null} reversed={false} flipped={false} size="normal" active />
+                <p className="text-frost-300/70 text-sm tracking-wide">Shuffling the runes…</p>
+              </div>
+            )}
+
             {spread === "five_cross" && cards.length === 5 ? (
               <div
                 className="grid gap-3 md:gap-5 justify-center"
@@ -325,8 +349,27 @@ export default function ReadingApp() {
               </p>
             )}
 
-            {showSummary && !reading && (
-              <p className="text-frost-300/70 text-sm tracking-wide animate-fadeUp">The runes are speaking…</p>
+            {showSummary && !reading && !readingError && (
+              <div className="text-center space-y-1 animate-fadeUp">
+                <p className="text-frost-300/80 text-sm tracking-wide animate-pulse">The runes are speaking…</p>
+                {waitedLong && (
+                  <p className="text-parchment/50 text-xs">
+                    {cards.length > 1 ? "Weaving the runes together into one answer — a few more moments." : "Almost there…"}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {showSummary && !reading && readingError && (
+              <div onClick={(e) => e.stopPropagation()} className="text-center space-y-3 animate-fadeUp">
+                <p className="text-parchment/80 text-sm">{readingError} Your runes are kept — try again.</p>
+                <button
+                  onClick={() => drawToken && fetchReading(question, drawToken)}
+                  className="rounded-full bg-frost-500 text-void font-semibold px-6 py-2.5 text-sm hover:bg-frost-300"
+                >
+                  Try again
+                </button>
+              </div>
             )}
 
             {showSummary && reading && (
